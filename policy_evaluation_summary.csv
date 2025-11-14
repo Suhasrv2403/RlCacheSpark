@@ -1,0 +1,5 @@
+Policy,Final_Cache_Hit_Ratio(%),Avg_Query_Latency(ms),Total_Evictions
+LRU,6.74,0.04,0
+LFU,16.85,0.03,0
+FIFO,6.74,0.03,0
+RL,10.11,2.06,0

@@ -1,0 +1,41 @@
+Query_Index,Policy,Query,Cache_Hit_Ratio,Query_Latency_ms
+1,LRU,"{'order_amount': ('>', 900)}",50.0,0.05
+2,LRU,"{'product_category': ('=', 'Toys')}",42.86,0.03
+3,LRU,"{'customer_id': ('>', 4500)}",25.0,0.03
+4,LRU,"{'order_date': ('>=', Timestamp('2025-12-01 00:00:00'))}",17.65,0.09
+5,LRU,"{'product_category': ('=', 'Electronics')}",13.95,0.04
+6,LRU,"{'product_category': ('=', 'Books')}",12.0,0.03
+7,LRU,"{'order_amount': ('<', 50)}",10.0,0.03
+8,LRU,"{'customer_id': ('<', 2000)}",8.57,0.03
+9,LRU,"{'product_category': ('=', 'Clothing')}",7.59,0.03
+10,LRU,"{'order_amount': ('>', 500)}",6.74,0.03
+1,LFU,"{'order_amount': ('>', 900)}",50.0,0.03
+2,LFU,"{'product_category': ('=', 'Toys')}",42.86,0.02
+3,LFU,"{'customer_id': ('>', 4500)}",33.33,0.03
+4,LFU,"{'order_date': ('>=', Timestamp('2025-12-01 00:00:00'))}",23.53,0.08
+5,LFU,"{'product_category': ('=', 'Electronics')}",23.26,0.03
+6,LFU,"{'product_category': ('=', 'Books')}",22.0,0.03
+7,LFU,"{'order_amount': ('<', 50)}",20.0,0.03
+8,LFU,"{'customer_id': ('<', 2000)}",18.57,0.03
+9,LFU,"{'product_category': ('=', 'Clothing')}",17.72,0.03
+10,LFU,"{'order_amount': ('>', 500)}",16.85,0.03
+1,FIFO,"{'order_amount': ('>', 900)}",50.0,0.04
+2,FIFO,"{'product_category': ('=', 'Toys')}",42.86,0.02
+3,FIFO,"{'customer_id': ('>', 4500)}",25.0,0.03
+4,FIFO,"{'order_date': ('>=', Timestamp('2025-12-01 00:00:00'))}",17.65,0.08
+5,FIFO,"{'product_category': ('=', 'Electronics')}",13.95,0.03
+6,FIFO,"{'product_category': ('=', 'Books')}",12.0,0.02
+7,FIFO,"{'order_amount': ('<', 50)}",10.0,0.03
+8,FIFO,"{'customer_id': ('<', 2000)}",8.57,0.03
+9,FIFO,"{'product_category': ('=', 'Clothing')}",7.59,0.03
+10,FIFO,"{'order_amount': ('>', 500)}",6.74,0.03
+1,RL,"{'order_amount': ('>', 900)}",50.0,15.62
+2,RL,"{'product_category': ('=', 'Toys')}",42.86,0.19
+3,RL,"{'customer_id': ('>', 4500)}",37.5,0.37
+4,RL,"{'order_date': ('>=', Timestamp('2025-12-01 00:00:00'))}",26.47,1.28
+5,RL,"{'product_category': ('=', 'Electronics')}",20.93,0.53
+6,RL,"{'product_category': ('=', 'Books')}",18.0,0.39
+7,RL,"{'order_amount': ('<', 50)}",15.0,0.62
+8,RL,"{'customer_id': ('<', 2000)}",12.86,0.55
+9,RL,"{'product_category': ('=', 'Clothing')}",11.39,0.52
+10,RL,"{'order_amount': ('>', 500)}",10.11,0.54
