@@ -93,6 +93,7 @@ class Executor:
 
         with torch.no_grad():
             q_values = self.rl_model(state_tensor)
+            print("[RL] Q-values:", q_values)
             best_action = q_values.argmax().item()
 
         cache_keys = list(self.cache.keys())
@@ -292,6 +293,72 @@ class Executor:
         print(f"Total Cache Used: {self.total_cache_used / 1024**2:.2f} MB | "
               f"Hit Ratio: {self.get_cache_hit_ratio():.2f}")
 
+    def _simulate_multi_query_reward(self, simulated_cache, future_queries, weights):
+        """
+        Simulate next K queries and compute weighted reward.
+        Uses hit_ratio improvement.
+        """
+        reward = 0.0
+
+        # For reward baseline
+        before_hits, before_miss = 0, 0
+        for q in future_queries:
+            h, m = self.get_instant_cache_hit_ratio(q)
+            before_hits += h
+            before_miss += m
+        if before_hits + before_miss == 0:
+            baseline = 0
+        else:
+            baseline = before_hits / (before_hits + before_miss)
+
+        # Temporary executor-like structure
+        temp_cache = {k: v for k, v in simulated_cache.items()}
+
+        for i, q in enumerate(future_queries):
+            h, m = 0, 0
+            # simulate hits
+            for pid, partition in self.all_partitions.items():
+                if not partition.can_prune(q):
+                    if pid in temp_cache:
+                        h += 1
+                    else:
+                        m += 1
+
+            if h + m > 0:
+                hit_ratio = h / (h + m)
+                reward += weights[i] * (hit_ratio - baseline)
+
+        return reward
+
+    def _sample_future_queries(self, N=5):
+        """
+        Generate N synthetic future queries for multi-step reward simulation.
+        You can replace this with real workload traces later.
+        """
+        categories = ["Electronics", "Clothing", "Books", "Toys"]
+        states = ["CA", "NY", "TX", "FL", "WA"]
+        segments = ["Regular", "Premium", "VIP"]
+
+        queries = []
+        for _ in range(N):
+            q_type = random.choice(["amount", "category", "date", "state_segment", "customer"])
+            if q_type == "amount":
+                queries.append({"order_amount": (">", np.random.uniform(100, 900))})
+            elif q_type == "category":
+                queries.append({"product_category": ("=", random.choice(categories))})
+            elif q_type == "date":
+                random_day = pd.Timestamp("2025-01-01") + timedelta(days=random.randint(0, 364))
+                queries.append({"order_date": (">=", random_day)})
+            elif q_type == "state_segment":
+                queries.append({
+                    "state": ("=", random.choice(states)),
+                    "segment": ("=", random.choice(segments))
+                })
+            else:
+                queries.append({"customer_id": (">", random.randint(1, 4800))})
+
+        return queries
+
     def run_query_and_record_rl_data(self, query_filters: Dict[str, Any], replay_buffer: List[Dict[str, Any]],
                                      top_k: int = None):
         """
@@ -331,34 +398,39 @@ class Executor:
 
                 # 4️⃣ For each candidate, simulate eviction and cache update
                 i = 0
+                future_queries = self._sample_future_queries(N=5)
+                weights = [1.0, 1.1, 1.2, 1.25, 1.3]
+
                 for evict_id in candidates:
-                    # Simulate new cache contents
                     simulated_cache = dict(self.cache)
                     simulated_cache.pop(evict_id)
                     simulated_cache[new_partition.partition_id] = new_partition
 
-                    # Compute new cache state vector
-                    new_state = self._get_cache_state_vector(simulated_cache)
+                    # compute multi-step reward
+                    reward = self._simulate_multi_query_reward(
+                        simulated_cache,
+                        future_queries,
+                        weights
+                    )
 
-                    # Record transition in replay buffer
+                    new_state = self._get_cache_state_vector(query_filters, simulated_cache)[0]
+
                     replay_buffer.append({
-                        "current_cache": current_state,  # cache before eviction
-                        "action": i,  # evicted partition
-                        "new_cache": new_state,  # cache after eviction
-                        "reward" : (current_state[-1] - new_state[-1])
+                        "current_cache": current_state[0],
+                        "action": i,
+                        "new_cache": new_state,
+                        "reward": reward
                     })
 
-
-
-
                     i += 1
-                    print(f"[RL RECORD] Query on {query_filters} | Evict {evict_id} → recorded state transition")
-                replay_buffer.append({
-                    "current_cache": current_state,  # cache before eviction
-                    "action": 5,  # evicted partition
-                    "new_cache": current_state,  # cache after eviction
-                    "reward": 0
-                })
+                    print(f"[RL-MULTI] Evict {evict_id} → {reward:.4f} multi-query reward")
+
+                    replay_buffer.append({
+                        "current_cache": current_state[0],
+                        "action": i,
+                        "new_cache": current_state[0],
+                        "reward": 0.0
+                    })
 
                 # 5️⃣ Apply actual cache update (based on your policy)
                 self.load_partition(new_partition)
