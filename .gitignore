@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+
+# OS / editors
+.DS_Store
+.idea/
+
+# PyTorch checkpoints (train locally or attach as release assets)
+*.pth
+*.pth.*
+
+# Large offline RL datasets and aggregated runs (regenerate from the simulator)
+replay_buffer*.csv
+results_unified.csv
+training_log.csv
+
+# Generated figures and evaluation exports
+*.png
+evaluation_plots/
+evaluation_plots_poster/
+results/
+new_run/results/
+
+# Version only the training script from experiments; weights stay local
+new_run/*
+!new_run/train_stable_dqn.py
