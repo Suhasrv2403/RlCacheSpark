@@ -15,9 +15,29 @@ This repository is a **Spark-inspired executor simulator** plus **offline reinfo
 | **Goal** | Dynamic eviction that adapts to workload shifts and protects expensive partitions. |
 | **Training** | **Offline RL** on a large replay buffer (states from LRU/LFU/FIFO/RANDOM mixes). |
 | **Algorithm** | **DDQN**, **Huber loss**, **soft target updates**, **feature normalization** (stability under noisy Spark-like workloads). |
-| **Reported gains (see paper)** | ~**35%** improvement in **P99 latency** vs LRU (avg.); ~**12%** hit-ratio improvement; **~12%** avg. improvement over LRU on **unseen** query patterns. |
+| **Experimental summary** | ~**35%** improvement in **P99 latency** vs LRU (avg.); ~**12%** hit-ratio improvement; **~12%** avg. improvement over LRU on **unseen** query patterns. |
 
 *Exact numbers depend on your simulator settings and seeds; reproduce with `evaluate_policies.py` and your trained weights.*
+
+---
+
+## Results preview
+
+### Hit ratio by policy (evaluation run)
+
+![Final cache hit ratio by policy](docs/images/final_hit_ratio_by_policy.png)
+
+### Phase shift workload (temporal → categorical)
+
+LRU can thrash after an abrupt shift; the RL policy uses **query context** in the state to adapt faster.
+
+![Hit ratio timeline under moving / phase-shift workload](docs/images/phase_shift_timeline.png)
+
+### P99 tail latency
+
+Cost-aware eviction targets **tail** behavior, not just average hit rate.
+
+![P50 vs P99 latency by policy](docs/images/p99_latency.png)
 
 ---
 
@@ -31,7 +51,7 @@ This work shifts from **discrete hit/miss rewards** toward **normalized, cost-aw
 
 ---
 
-## System overview (from the report)
+## System overview
 
 ### Simulator instead of a live Spark cluster
 
@@ -45,19 +65,19 @@ RL needs many interactions. Running inside a real Spark/JVM stack is slow (start
 ### MDP formulation
 
 - **State** combines (1) **per-partition** features for cached partitions, (2) a **workload / query-context** vector (e.g. temporal vs categorical vs numerical intent), and (3) **global cache** signals (utilization, rolling eviction rate / thrashing pressure).
-- **Actions:** discrete choice of **which cached partition to evict** (or **no eviction** when the design allows)—the code uses a small fixed cache footprint (e.g. five slots in the paper) → **six** actions including “no op.”
+- **Actions:** discrete choice of **which cached partition to evict** (or **no eviction** when the design allows)—here the cache holds a small fixed number of partitions (e.g. five slots) → **six** actions including “no op.”
 - **Reward:** **cost-aware**—penalties tied to **recomputation cost** of evicted or missed work, not ±1 hit/miss. This encourages **weighted** behavior: accept smaller penalties on light partitions to avoid large ones on heavy partitions.
 
 ### Offline data and network
 
 - A **replay buffer** of **(state, action, reward, next_state)** is built by driving the simulator with **multiple** eviction policies so the value function sees both good and bad cache states.
-- The **DQN** in early work showed **overestimation** and instability; the report describes moving to **DDQN**, **Huber loss** (outliers), and **soft target networks** for smoother learning.
+- Early **DQN** runs showed **overestimation** and instability; training uses **DDQN**, **Huber loss** (outliers), and **soft target networks** for smoother learning.
 
 ---
 
 ## Experiments (high level)
 
-The report evaluates **LRU, LFU, FIFO, RANDOM**, and **RL** on shared query traces:
+**LRU, LFU, FIFO, RANDOM**, and **RL** are compared on shared query traces:
 
 - **Trained / mixed** workloads — check convergence.
 - **Phase shift** — e.g. temporal-heavy → categorical-heavy mid-run; LRU **thrashes** while the RL agent uses **query context** to adapt faster.
@@ -65,13 +85,13 @@ The report evaluates **LRU, LFU, FIFO, RANDOM**, and **RL** on shared query trac
 
 Metrics emphasize **cache hit ratio**, **P50**, and especially **P99 latency** as the tail-sensitive target.
 
-### Limitations (from the report)
+### Limitations
 
 - Simulator **collapses** real costs (I/O, skew, serialization) into **scalars**—production costs are messier.
 - **Action/state size** grows with cache width; at **cluster** scale (millions of partitions), new designs (top-K, hierarchical policies) would be needed.
 - **Offline** training is tied to the buffer distribution; **distribution shift** may require **retraining** or **online** RL later.
 
-### Future directions (from the report)
+### Future directions
 
 - **Online RL** for continual adaptation.
 - **Proactive** cache management (use idle time), not only reactive evictions.
@@ -86,11 +106,11 @@ Metrics emphasize **cache hit ratio**, **P50**, and especially **P99 latency** a
 | `executor.py` | Cache simulator, query execution, eviction policies including **RL** (loads `dqn_policy_net.pth` by default). |
 | `evaluate_policies.py` | Compare policies on the same workload; timelines and summaries for analysis/plots. |
 | `dqn_training.py` | Offline DQN training from CSV replay data; checkpoints + logs (generated locally). |
-| `new_run/train_stable_dqn.py` | **DDQN**-style training with stabilizers aligned with the report (Huber, soft updates, etc.). |
+| `new_run/train_stable_dqn.py` | **DDQN**-style training with stabilizers (Huber, soft updates, etc.). |
 | `plot_results.py` | Figures from `policy_evaluation_summary.csv` / `policy_timeline_data.csv`. |
 | `data_explore.py` | Small exploratory plots for datasets. |
 
-Checkpoints (`.pth`), large `replay_buffer*.csv` files, PNG outputs, and IDE/OS junk are **gitignored** so the repo stays clone-friendly. After cloning, install deps, regenerate buffers and weights locally, then run evaluation and plotting.
+Checkpoints (`.pth`), large `replay_buffer*.csv` files, PNG outputs (except **`docs/images/`** for this README), and IDE/OS junk are **gitignored** so the repo stays clone-friendly. After cloning, install deps, regenerate buffers and weights locally, then run evaluation and plotting.
 
 ---
 
@@ -111,7 +131,7 @@ pip install -r requirements.txt
 
 ---
 
-## References (from the report)
+## References
 
 1. M. Zaharia et al., *Spark: The Definitive Guide*, O’Reilly, 2018.  
 2. R. Chen et al., “Improving Spark Cache Hit Ratio Through Learned Policies,” IEEE Big Data, 2022.  
@@ -123,4 +143,4 @@ pip install -r requirements.txt
 
 ## Repository hygiene (for contributors)
 
-The GitHub-oriented cleanup added **`.gitignore`**, **`requirements.txt`**, and stopped tracking **large CSVs**, **weights**, **generated plots**, and **IDE/caches**. Full narrative PDF/DOCX content lives in **`report.docx`**; this README is the **landing page** summary.
+The GitHub-oriented cleanup added **`.gitignore`**, **`requirements.txt`**, and stopped tracking **large CSVs**, **weights**, **generated plots**, and **IDE/caches**. **`report.docx`** holds the long-form document; this README is the **landing page** with curated figures under **`docs/images/`**.
