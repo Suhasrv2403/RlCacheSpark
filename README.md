@@ -110,7 +110,7 @@ Metrics emphasize **cache hit ratio**, **P50**, and especially **P99 latency** a
 | `plot_results.py` | Figures from `policy_evaluation_summary.csv` / `policy_timeline_data.csv`. |
 | `data_explore.py` | Small exploratory plots for datasets. |
 
-Checkpoints (`.pth`), large `replay_buffer*.csv` files, PNG outputs (except **`docs/images/`** for this README), and IDE/OS junk are **gitignored** so the repo stays clone-friendly. After cloning, install deps, regenerate buffers and weights locally, then run evaluation and plotting.
+Checkpoints (`.pth`), large `replay_buffer*.csv` files, PNG outputs (except **tracked images under `docs/`**), and IDE/OS junk are **gitignored** so the repo stays clone-friendly. After cloning, install deps, regenerate buffers and weights locally, then run evaluation and plotting.
 
 ---
 
@@ -143,4 +143,4 @@ pip install -r requirements.txt
 
 ## Repository hygiene (for contributors)
 
-The GitHub-oriented cleanup added **`.gitignore`**, **`requirements.txt`**, and stopped tracking **large CSVs**, **weights**, **generated plots**, and **IDE/caches**. **`report.docx`** holds the long-form document; this README is the **landing page** with curated figures under **`docs/images/`**.
+The GitHub-oriented cleanup added **`.gitignore`**, **`requirements.txt`**, and stopped tracking **large CSVs**, **weights**, **generated plots**, and **IDE/caches**. **`report.docx`** holds the long-form document; this README is the **landing page** with curated figures under **`docs/`** (e.g. **`docs/images/`**).
