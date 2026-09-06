@@ -1,3 +1,27 @@
+"""
+Generate poster-quality comparison plots from evaluation CSVs.
+
+Reads `policy_evaluation_summary.csv` and `policy_timeline_data.csv` and
+produces styled, high-resolution (300 DPI) bar and line charts comparing
+LRU/LFU/FIFO/RANDOM/RL eviction policies.
+
+SCHEMA MISMATCH (flagged, not fixed): this script expects columns that
+the current `evaluate_policies.py` does not produce — specifically
+`Workload` (timeline) and `Workload_Set`, `Total_Runtime(s)`,
+`P99_Latency(ms)`, `P50_Latency(ms)` (summary). `evaluate_policies.py`
+currently writes only Policy/Final_Cache_Hit_Ratio(%)/
+Avg_Query_Latency(ms)/Total_Evictions (summary) and Query_Index/Policy/
+Query/Cache_Hit_Ratio/Query_Latency_ms (timeline), with no per-workload
+breakdown. Running this script against those CSVs as-is will raise a
+KeyError. See review summary for the reproducibility implications.
+
+Inputs: policy_evaluation_summary.csv, policy_timeline_data.csv
+    (both read from the current working directory).
+Outputs: evaluation_plots_poster/*.png (timeline plots per workload,
+    latency bar charts, generalization-improvement chart, final hit
+    ratio chart).
+"""
+
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -31,14 +55,19 @@ plt.rcParams['axes.labelweight'] = 'bold'
 plt.rcParams['axes.titleweight'] = 'bold'
 
 
-def format_workload_name(name):
-    """Cleans up workload names."""
+def format_workload_name(name: str) -> str:
+    """Strip underscores and the literal "Workload" suffix for display (e.g. "Moving_Workload" -> "Moving")."""
     if isinstance(name, str):
         return name.replace("_", " ").replace("Workload", "").strip()
     return name
 
 
-def save_plot(filename):
+def save_plot(filename: str) -> None:
+    """Save the current matplotlib figure into RESULTS_DIR and close it.
+
+    Args:
+        filename: Output filename (joined with RESULTS_DIR).
+    """
     path = os.path.join(RESULTS_DIR, filename)
     # bbox_inches='tight' trims all extra whitespace around the chart
     plt.savefig(path, bbox_inches='tight', pad_inches=0.1)
@@ -48,9 +77,20 @@ def save_plot(filename):
 
 # --- Plotting Functions ---
 
-def plot_hit_ratio_timeline_separated(df_timeline: pd.DataFrame):
+def plot_hit_ratio_timeline_separated(df_timeline: pd.DataFrame) -> None:
     """
-    Timeline plots: Separate file per workload.
+    Render one hit-ratio-over-time line chart per distinct workload in
+    `df_timeline['Workload']`, saved as timeline_<workload>.png.
+
+    Special-cases a workload literally named "Moving_Workload" by
+    drawing a vertical "Phase Shift" marker at a hardcoded query index
+    (10.5) — this assumes that specific workload always shifts phase at
+    that fixed point; update the constant if the workload generator changes.
+
+    Args:
+        df_timeline: Must contain columns Workload, Query_Index,
+            Cache_Hit_Ratio, Policy (see module docstring for the
+            current schema mismatch with evaluate_policies.py's output).
     """
     print("Generating Hit Ratio Timeline Plots...")
 
@@ -104,10 +144,14 @@ def plot_hit_ratio_timeline_separated(df_timeline: pd.DataFrame):
         save_plot(f"timeline_{workload.lower()}.png")
 
 
-def plot_latency_comparison_combined(df_summary: pd.DataFrame):
+def plot_latency_comparison_combined(df_summary: pd.DataFrame) -> None:
     """
-    Latency plots: P99 and P50 (Combined Workloads).
-    Removed borders and labels for a cleaner look.
+    Render grouped bar charts of P99 and P50 latency (ms) by workload
+    scenario and policy, saved as bar_combined_p99.png / bar_combined_p50.png.
+
+    Args:
+        df_summary: Must contain columns Workload_Set, Policy,
+            'P99_Latency(ms)', 'P50_Latency(ms)'.
     """
     print("Generating Latency Bar Charts...")
 
@@ -151,10 +195,17 @@ def plot_latency_comparison_combined(df_summary: pd.DataFrame):
         save_plot(f"bar_combined_{metric_col.split('_')[0].lower()}.png")
 
 
-def plot_generalization_summary(df_summary: pd.DataFrame):
+def plot_generalization_summary(df_summary: pd.DataFrame) -> None:
     """
-    Generalization: Improvement vs LRU (Combined).
-    Removed borders and labels for a cleaner look.
+    Compute each policy's total-runtime improvement over LRU (%) per
+    workload scenario, and render as a grouped bar chart
+    (bar_generalization_improvement.png). No-ops (returns without
+    plotting) if the 'LRU' column is missing after pivoting, or if the
+    resulting improvement table is empty.
+
+    Args:
+        df_summary: Must contain columns Workload_Set, Policy,
+            'Total_Runtime(s)'.
     """
     print("Generating Generalization Summary...")
 
@@ -208,10 +259,14 @@ def plot_generalization_summary(df_summary: pd.DataFrame):
     save_plot("bar_generalization_improvement.png")
 
 
-def plot_final_hit_ratio_combined(df_summary: pd.DataFrame):
+def plot_final_hit_ratio_combined(df_summary: pd.DataFrame) -> None:
     """
-    Final Hit Ratio (Combined).
-    Removed borders and labels for a cleaner look.
+    Render a grouped bar chart of final cumulative hit ratio (%) by
+    workload scenario and policy, saved as bar_final_hit_ratio_combined.png.
+
+    Args:
+        df_summary: Must contain columns Workload_Set, Policy,
+            'Final_Cache_Hit_Ratio(%)'.
     """
     print("Generating Final Hit Ratio Bar Chart...")
 
@@ -252,7 +307,8 @@ def plot_final_hit_ratio_combined(df_summary: pd.DataFrame):
 
 # --- Main Execution ---
 
-def main():
+def main() -> None:
+    """Load both evaluation CSVs and generate all poster plots, or print a friendly error if missing."""
     try:
         df_summary = pd.read_csv(SUMMARY_FILE)
         df_timeline = pd.read_csv(TIMELINE_FILE)

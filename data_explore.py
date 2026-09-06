@@ -1,3 +1,19 @@
+"""
+Quick exploratory plot of a single per-query timeline CSV.
+
+Reads `policy_timeline_data.csv` (produced by `evaluate_policies.py`) and
+renders cache hit ratio and query latency over time for every policy found
+in the file. This is a scratch/exploration script, not part of the
+reproducible pipeline: `plot_results.py` supersedes it with styled,
+multi-figure poster plots. Kept only for ad-hoc debugging; consider
+removing once `plot_results.py` covers all needed views.
+
+Inputs: policy_timeline_data.csv (columns: Policy, Query_Index,
+    Cache_Hit_Ratio, Query_Latency_ms)
+Outputs: my_plot_1.png (hit ratio + latency subplots), plus an interactive
+    matplotlib window.
+"""
+
 import matplotlib.pyplot as plt
 import pandas as pd
 

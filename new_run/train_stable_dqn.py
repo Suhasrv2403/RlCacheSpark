@@ -6,13 +6,32 @@ Stable offline Double DQN training with robust stabilizers, optimized
 for the cache eviction problem with a focus on stability (DDQN, Huber Loss)
 and utilizing static state normalization.
 
+This is the canonical/current training script referenced by the README
+(as opposed to the top-level `dqn_training.py`, a vanilla-DQN precursor —
+see that file's module docstring for the comparison). Both scripts now
+share one DQN architecture and state dimension via `dqn_model.py`
+(STATE_DIM=38); see that module's docstring for how the previous
+34-vs-38 mismatch was reconciled.
+
+Inputs: a replay-buffer CSV (default path `../replay_buffer_cost_aware.csv`,
+    relative to this file), with columns [state features..., action,
+    next-state features..., reward] and an optional trailing "policy"
+    column — expected to hold the *cost-aware* reward, not a raw
+    hit/miss signal (see `DEFAULT_REWARD_SCALE`/`DEFAULT_CLIP_REWARD`
+    comments below). Optionally a `--resume` checkpoint path.
+Outputs: `<model>` (final policy-network state_dict), periodic
+    `<model>.ckpt_epoch<N>.pth` full checkpoints (policy + target net +
+    optimizer state, every 500 epochs), and `results/training_loss.png`.
+
 Usage:
     python train_stable_dqn.py --csv replay_buffer_cost_aware.csv --model dqn_cost_aware_net.pth
 """
 
 import os
+import sys
 import argparse
 import random
+from pathlib import Path
 from collections import deque
 import numpy as np
 import pandas as pd
@@ -20,9 +39,16 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 import torch
-import torch.nn as nn
 import torch.optim as optim
-from typing import Tuple
+from typing import Tuple, Optional
+
+# dqn_model.py currently lives at the repo root (one level up from this
+# new_run/ script); add it to sys.path so this script works whether it's
+# run from new_run/ or from the repo root. NOTE: once the planned folder
+# restructure lands (dqn_model.py -> src/dqn_model.py, this script ->
+# scripts/train_stable_dqn.py), this path needs updating to point at src/.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from dqn_model import DQN, STATE_DIM, NUM_ACTIONS  # noqa: E402
 
 # -----------------------------
 # Config defaults (tunable)
@@ -47,43 +73,48 @@ RESULTS_DIR = "results"
 
 
 # -----------------------------
-# Model
+# Model: imported from dqn_model.DQN (see that module's docstring for
+# the history of why this used to be defined separately in three places).
+# STATE_DIM (38) / NUM_ACTIONS (6) are the canonical dimensions; this
+# script still infers the actual state_dim from the CSV at load time
+# (see extend_from_csv_stream) rather than assuming STATE_DIM, so it
+# keeps working if pointed at a differently-shaped buffer.
 # -----------------------------
-class DQN(nn.Module):
-    """
-    DQN Network Architecture. Uses LayerNorm (LN) for stability during inference.
-    """
-
-    def __init__(self, input_dim: int, output_dim: int):
-        super().__init__()
-        # Use a slightly larger hidden dimension for the new 38-feature input
-        hidden_dim = 256  # Keeping it at 256 is fine
-        self.net = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.ReLU(),
-            nn.LayerNorm(hidden_dim),  # LayerNorm implementation
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, output_dim)
-        )
-
-    def forward(self, x):
-        return self.net(x)
 
 
 # -----------------------------
 # Replay buffer (simple)
 # -----------------------------
 class ReplayBuffer:
-    def __init__(self, capacity=DEFAULT_REPLAY_CAP):
+    """Fixed-capacity FIFO buffer of (state, action, reward, next_state) transitions,
+    populated by streaming a replay-buffer CSV rather than by live interaction."""
+
+    def __init__(self, capacity: int = DEFAULT_REPLAY_CAP):
+        """
+        Args:
+            capacity: Max transitions retained (oldest dropped once full).
+        """
         self.buf = deque(maxlen=capacity)
 
-    def add(self, s, a, r, s_next):
+    def add(self, s: np.ndarray, a: int, r: float, s_next: np.ndarray) -> None:
+        """Append one transition to the buffer."""
         self.buf.append((s, a, r, s_next))
 
-    def extend_from_csv_stream(self, csv_file, max_rows=None, chunksize=100000):
+    def extend_from_csv_stream(self, csv_file: str, max_rows: Optional[int] = None, chunksize: int = 100000) -> None:
         """
-        Stream CSV in chunks to avoid memory explosion.
+        Stream a replay-buffer CSV in chunks to avoid loading it entirely
+        into memory, inferring the state dimension `n` from the column
+        count rather than hardcoding it (contrast with `dqn_training.py`,
+        which hardcodes fixed column offsets).
+
+        Expected column layout: `n` state features, 1 action column,
+        `n` next-state features, 1 reward column, and optionally a
+        trailing "policy" label column (detected by name, case-insensitive).
+
+        Args:
+            csv_file: Path to the replay buffer CSV.
+            max_rows: Optional cap on total transitions loaded.
+            chunksize: Rows read per `pandas.read_csv` chunk.
         """
         print(f"Loading data from {csv_file}...")
         read = 0
@@ -162,7 +193,57 @@ def train_offline_dqn(csv_file: str,
                       grad_clip: float = DEFAULT_GRAD_CLIP,
                       replay_capacity: int = DEFAULT_REPLAY_CAP,
                       max_rows: int = None,
-                      resume_checkpoint: str = None):
+                      resume_checkpoint: str = None) -> Tuple[list, int, int]:
+    """Train an offline Double DQN policy on a streamed replay-buffer CSV.
+
+    Stabilizers applied (why each is needed for this noisy, offline,
+    Spark-like-workload setting):
+      - Double DQN target (`policy_net` selects the next action,
+        `target_net` evaluates it): decouples action selection from
+        value evaluation to counter the max-operator's overestimation
+        bias that plain DQN suffers from (see `dqn_training.py` for the
+        vanilla-DQN comparison).
+      - Huber loss (`nn.SmoothL1Loss`): quadratic near zero, linear for
+        large errors, so occasional reward/Q outliers don't dominate the
+        gradient the way squared error would.
+      - Soft (Polyak) target updates (`tau`-weighted blend every step,
+        not a periodic hard copy): keeps the bootstrap target slowly
+        moving instead of jumping, which is gentler on an offline buffer
+        that provides no fresh on-policy correction signal.
+      - Static state normalization (precomputed mean/std over a buffer
+        sample): keeps input feature scales comparable regardless of
+        which sub-features (e.g. size in bytes vs. row counts vs. small
+        ratios) dominate raw magnitude.
+      - Reward clipping + scaling, and gradient-norm clipping: bound the
+        magnitude of both the training signal and the resulting gradient
+        step, since a single bad/rare transition can otherwise destabilize
+        a Q-network's rolling estimates.
+
+    Args:
+        csv_file: Replay buffer CSV path.
+        model_path: Where to save the final policy-network state_dict.
+        device: torch device string ("cpu" or "cuda").
+        batch_size: Transitions per gradient step.
+        num_epochs: Number of gradient steps (misleadingly named — each
+            "epoch" here is one sampled minibatch update, not a full
+            pass over the buffer).
+        lr: Adam learning rate.
+        gamma: Discount factor for the DDQN target.
+        tau: Soft target-update coefficient (fraction of policy_net
+            copied into target_net's running average each step).
+        reward_clip: Clamp raw rewards to [-reward_clip, reward_clip]
+            before scaling.
+        reward_scale: Multiplier applied to clipped rewards.
+        grad_clip: Max gradient norm for `clip_grad_norm_`.
+        replay_capacity: Max transitions retained in the buffer.
+        max_rows: Optional cap on transitions loaded from the CSV.
+        resume_checkpoint: Optional path to a full checkpoint (policy +
+            target + optimizer state) to resume from.
+
+    Returns:
+        Tuple of (recent_losses, state_dim, num_actions), where
+        recent_losses is the last up-to-200 loss values (for plotting).
+    """
     device = torch.device(device)
 
     # 1) load replay (stream)
@@ -291,7 +372,12 @@ def train_offline_dqn(csv_file: str,
 # -----------------------------------
 # PLOT FUNCTIONS (Unchanged)
 # -----------------------------------
-def plot_training_loss(losses):
+def plot_training_loss(losses: list) -> None:
+    """Save a raw + rolling-mean(50) Huber loss curve to results/training_loss.png.
+
+    Args:
+        losses: Sequence of per-step loss values to plot.
+    """
     if not os.path.exists(RESULTS_DIR):
         os.makedirs(RESULTS_DIR)
 
@@ -307,7 +393,13 @@ def plot_training_loss(losses):
     print("[PLOT] training_loss.png")
 
 
-def plot_distribution(values, name):
+def plot_distribution(values, name: str) -> None:
+    """Save a histogram+KDE of `values` to results/<name>.png (spaces replaced with underscores).
+
+    Args:
+        values: 1D array-like of numeric values to plot.
+        name: Plot title and (sanitized) output filename stem.
+    """
     if not os.path.exists(RESULTS_DIR):
         os.makedirs(RESULTS_DIR)
 
@@ -322,9 +414,19 @@ def plot_distribution(values, name):
 # ... (Other plotting functions remain unchanged) ...
 
 
-def quick_test_model(model_path, state_dim, num_actions, device="cpu"):
+def quick_test_model(model_path: str, state_dim: int, num_actions: int, device: str = "cpu") -> None:
     """
     Load and run a quick forward pass to ensure model loads and outputs Q-values.
+
+    Handles two checkpoint shapes: a plain policy-network `state_dict`
+    (final save) or a full checkpoint dict with a `'policy_state'` key
+    (periodic training checkpoints).
+
+    Args:
+        model_path: Path to the checkpoint to sanity-check.
+        state_dim: Expected input feature count (must match the trained model).
+        num_actions: Expected output action count.
+        device: torch device to map the checkpoint onto.
     """
     model = DQN(state_dim, num_actions)
     if os.path.exists(model_path):

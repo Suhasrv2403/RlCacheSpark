@@ -1,12 +1,43 @@
+"""
+Spark-style in-memory partition model.
+
+Defines `Partition`, the unit the cache simulator (`executor.py`) stores
+and evicts. A Partition wraps a chunk of a pandas DataFrame, mimicking
+Spark's column-type optimization and per-partition metadata (column
+statistics, numeric min/max bounds) so that filter-pushdown-style
+pruning can be checked without touching row data.
+
+Inputs: a pandas DataFrame slice (constructor argument).
+Outputs: none on disk — this module only builds in-memory metadata used
+    by `executor.py` for pruning, cache-state feature vectors, and
+    logging.
+"""
+
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Any
 
 class Partition:
+    """A single cached (or cacheable) chunk of a dataset, plus its metadata.
+
+    Mirrors Spark's partition abstraction: on construction, column dtypes
+    are downcast/categorized to reduce memory footprint (`_optimize_data_types`),
+    and per-column statistics and numeric bounds are precomputed
+    (`_build_metadata`) so that `can_prune` can decide whether a query's
+    filters could possibly match this partition without scanning it.
+    """
+
     def __init__(self, data: pd.DataFrame, partition_id: int = 0, storage_level: str = "MEMORY"):
+        """
+        Args:
+            data: Rows belonging to this partition.
+            partition_id: Identifier used as the cache key in `executor.py`.
+            storage_level: Label only (e.g. "MEMORY"); not currently used
+                to change behavior.
+        """
         self.partition_id = partition_id
         self.storage_level = storage_level
-        self.size_in_memory = 0
+        self.size_in_memory = 0  # bytes; set by _calculate_size()
         self.access_count = 0
         self.last_accessed = pd.Timestamp.now()
 
@@ -20,7 +51,20 @@ class Partition:
         self._build_metadata()
         self._calculate_size()
 
-    def partition_stats(self, filters) -> Dict[str, Any]:
+    def partition_stats(self, filters: Dict[str, Any]) -> Dict[str, Any]:
+        """Compute a snapshot of this partition's cache-relevant stats for a query.
+
+        Side effect: refreshes `last_accessed` to now (this is used as a
+        recency signal, so calling this counts as an access).
+
+        Args:
+            filters: Query filter dict, same shape as `filter_rows` accepts.
+
+        Returns:
+            Dict with size_in_memory (bytes), access_count,
+            time_since_last_access (seconds), is_pruned (bool),
+            column_overlap (fraction of rows matching filters, in [0, 1]).
+        """
 
         filtered_rows = len(self.filter_rows(filters))
         overlap_ratio = filtered_rows / self.row_count if self.row_count else 0
@@ -52,6 +96,11 @@ class Partition:
                 col_data = col_data.astype(str).str.strip()
                 unique_ratio = col_data.nunique() / len(col_data)
                 avg_length = col_data.str.len().mean()
+                # Heuristic thresholds (magic numbers): treat a string column
+                # as low-cardinality categorical (and thus worth the
+                # `category` dtype's memory savings) when under half its
+                # values are unique and strings average under 100 chars.
+                # Not exposed as config; tune here if partitions misclassify.
                 if unique_ratio < 0.5 and avg_length < 100:
                     optimized_data[col] = col_data.astype('category')
                 else:
@@ -107,8 +156,21 @@ class Partition:
 
             self.column_stats[col] = stats
 
-    def _get_sample_values(self, series, n: int):
-        """Get representative sample values"""
+    def _get_sample_values(self, series: pd.Series, n: int) -> list:
+        """Pick up to `n` representative values from a column for pruning checks.
+
+        For numeric columns, always includes min and max (so range-based
+        pruning has the true extremes even under sampling), filling any
+        remaining slots with a fixed-seed random sample for reproducibility.
+        For other dtypes, returns a plain fixed-seed random sample.
+
+        Args:
+            series: Column to sample from (nulls are dropped first).
+            n: Maximum number of sample values to return.
+
+        Returns:
+            List of up to `n` values (fewer if the column has fewer non-null rows).
+        """
         non_null = series.dropna()
         if len(non_null) == 0:
             return []
@@ -132,8 +194,22 @@ class Partition:
 
     def can_prune(self, filters: Dict[str, Any]) -> bool:
         """
-        Check if this partition can be pruned based on numeric bounds.
-        Returns True if partition can be skipped.
+        Check whether this partition can be skipped entirely for a query,
+        mimicking Spark's filter-pushdown / partition-pruning optimization:
+        only metadata (numeric bounds, cached sample values) is examined,
+        never the underlying row data.
+
+        Args:
+            filters: Dict mapping column name to a condition, either a
+                `(operator, value)` tuple (operators: ">", ">=", "<", "<=",
+                "=") or a list of candidate values (treated as an "IN"
+                check against numeric bounds or cached samples).
+
+        Returns:
+            True if the partition provably cannot contain matching rows
+            (safe to skip), False if it must be scanned (either because it
+            may match, or because pruning can't be determined and the
+            partition is conservatively kept).
         """
         for column, condition in filters.items():
             if column not in self.partition_bounds:
@@ -142,7 +218,10 @@ class Partition:
                     stats = self.column_stats[column]
                     sample_values = [str(v).lower() for v in stats.get("sample_values", [])]
 
-                    # Skip pruning for free-text columns (very high cardinality)
+                    # High-cardinality (likely free-text) columns: our small
+                    # fixed sample is unlikely to contain the queried value
+                    # even when the partition does, so skip pruning rather
+                    # than risk wrongly discarding a matching partition.
                     if stats.get("unique_count", 0) > 1000:
                         continue
 
@@ -196,8 +275,22 @@ class Partition:
 
         return False
 
-    def filter_rows(self, condition) -> pd.DataFrame:
-        """Apply filter and return result, updating access patterns"""
+    def filter_rows(self, condition: Any) -> pd.DataFrame:
+        """Apply a filter to this partition's rows and record the access.
+
+        Args:
+            condition: One of:
+                - callable: `predicate(dataframe) -> boolean mask`.
+                - dict: column -> (operator, value), operators in
+                  {"=", "!=", ">", ">=", "<", "<=", "in"}, ANDed together.
+                - str: a pandas `DataFrame.query()` expression.
+
+        Returns:
+            The subset of rows matching the condition.
+
+        Raises:
+            ValueError: If `condition` is not callable, dict, or str.
+        """
         self.access_count += 1
         #self.last_accessed = pd.Timestamp.now()
 
@@ -233,11 +326,16 @@ class Partition:
             raise ValueError("Unsupported filter type. Must be callable, dict, or query string.")
 
     def get_column_stats(self, column: str) -> Dict:
-        """Get statistics for specific column"""
+        """Return the precomputed stats dict for `column`, or {} if unknown."""
         return self.column_stats.get(column, {})
 
     def get_size_info(self) -> Dict:
-        """Get size information"""
+        """Return a snapshot dict of this partition's identity and size.
+
+        Returns:
+            Dict with partition_id, row_count, size_in_memory_bytes,
+            column_count, access_count, last_accessed.
+        """
         return {
             "partition_id": self.partition_id,
             "row_count": self.row_count,
@@ -248,11 +346,21 @@ class Partition:
         }
 
     def project_columns(self, columns: List[str]) -> 'Partition':
-        """Create new partition with only specified columns (column pruning)"""
+        """Build a new Partition containing only `columns` (Spark-style column pruning).
+
+        Note: this reconstructs a full Partition (recomputing metadata and
+        size) rather than mutating in place, and reuses this partition's id.
+
+        Args:
+            columns: Column names to keep.
+
+        Returns:
+            A new Partition with the same partition_id and storage_level.
+        """
         projected_data = self.data[columns]
         return Partition(projected_data, self.partition_id, self.storage_level)
 
-    def __str__(self):
+    def __str__(self) -> str:
         info = self.get_size_info()
         return (f"Partition {self.partition_id}: "
                 f"{info['row_count']} rows, "
@@ -260,6 +368,11 @@ class Partition:
                 f"{info['column_count']} columns, "
                 f"Accessed {info['access_count']} times")
 
+# DEAD CODE (flagged, not removed per review scope): the block below is a
+# commented-out manual smoke test for the Partition class, left over from
+# development. It has no automated test coverage backing it — consider
+# moving it into tests/test_dataset_processing.py as a real pytest test,
+# or deleting it if superseded.
 """
 # --- Sample Test Code for Partition class ---
 

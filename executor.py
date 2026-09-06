@@ -1,19 +1,67 @@
+"""
+Spark-inspired cache/executor simulator with pluggable eviction policies.
+
+`Executor` owns a fixed-size in-memory cache of `Partition` objects
+(`DataSetProcessing.Partition`) and simulates running filter queries
+against a partitioned dataset, tracking hits/misses and triggering
+eviction on cache-full misses. Supports LRU, LFU, FIFO, RANDOM, and a
+trained-DQN ("RL") eviction policy, and can generate offline RL
+training data (state/action/next_state/reward transitions) by driving
+the simulator with each of the non-RL policies.
+
+MDP formulation (see README for the full write-up):
+  - State: a per-partition feature vector for every cached partition,
+    concatenated with global cache signals (see `_get_cache_state_vector`).
+  - Action: index of the cached partition to evict, or a "no eviction"
+    action when the index is out of range of the current cache size.
+  - Reward: NOT computed here for the primary logged transitions (this
+    module only records state transitions); `_simulate_multi_query_reward`
+    computes a hit-ratio-based multi-step reward used when generating RL
+    training data (`run_query_and_record_rl_data`) — note this is
+    hit-ratio-based, not the "cost-aware" recomputation-cost reward the
+    README describes for the DDQN pipeline (see review summary).
+
+Inputs: a pandas DataFrame (via `create_partitions`), and optionally a
+    trained DQN checkpoint path for the "RL" policy (default
+    "dqn_policy_net.pth").
+Outputs: when run as a script, writes replay_buffer_multi_policy.csv
+    (state/action/next_state/reward transitions for offline training).
+"""
+
 import pandas as pd
 import numpy as np
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple
 from collections import OrderedDict
 from DataSetProcessing import Partition  # use your Partition class here
 import csv
 import random
-from datetime import timedelta
+from datetime import timedelta, datetime
 from tqdm import tqdm
 import torch
-import numpy as np
-from typing import Optional
 import os
 
+from dqn_model import DQN, STATE_DIM, NUM_ACTIONS
+
 class Executor:
+    """Simulates a Spark-executor-style partition cache under a chosen eviction policy.
+
+    Owns two partition maps: `all_partitions` (the full dataset, keyed by
+    partition id) and `cache` (the subset currently resident in memory,
+    an `OrderedDict` so LRU/FIFO can use insertion/access order directly).
+    """
+
     def __init__(self, max_cache_size_mb: int = 512, eviction_policy: str = "LRU"):
+        """
+        Args:
+            max_cache_size_mb: Cache capacity in megabytes (converted to
+                bytes and stored as `max_cache_size`; not currently
+                enforced as a hard byte limit — eviction is instead
+                driven by `cache_length`, a partition *count*, set later
+                via `initialize_cache`).
+            eviction_policy: One of "LRU", "LFU", "FIFO", "RANDOM", "RL"
+                (case-insensitive). "RL" eagerly loads a DQN checkpoint
+                named "dqn_policy_net.pth" from the working directory.
+        """
         self.max_cache_size = max_cache_size_mb * 1024 * 1024
         self.cache: Dict[int, Partition] = OrderedDict()
         self.all_partitions: Dict[int, Partition] = {}
@@ -23,6 +71,7 @@ class Executor:
         # Stats
         self.total_hits = 0
         self.total_misses = 0
+        self.total_evictions = 0  # incremented in evict_partition; feeds the rolling-eviction-rate state feature
         self.query_log: List[Dict[str, Any]] = []
         self.flag = False
 
@@ -32,62 +81,97 @@ class Executor:
     # Partitioning and Initialization
     # -----------------------------
 
-    def create_partitions(self, data: pd.DataFrame, n_partitions: int = 4):
-        """Split the dataset into partitions"""
-        split_data = np.array_split(data, n_partitions)
+    def create_partitions(self, data: pd.DataFrame, n_partitions: int = 4) -> None:
+        """Split `data` into `n_partitions` roughly-equal Partitions and register them.
+
+        Note: calling this again with new data adds to (does not clear)
+        `all_partitions`, re-keyed from 0 — if called more than once,
+        later partitions with the same id overwrite earlier ones (see
+        the `__main__` block, which calls this twice with two different
+        DataFrames and 20/10 partitions, overwriting ids 0-9).
+
+        Args:
+            data: DataFrame to split.
+            n_partitions: Number of partitions to create.
+        """
+        # BUG FIX: np.array_split(dataframe, n) used to return a list of
+        # DataFrames, but with the numpy/pandas versions pinned by
+        # requirements.txt (numpy 2.4.x / pandas 3.0.x) it silently
+        # returns raw ndarrays instead, which crashes
+        # Partition.__init__ (expects a DataFrame). Splitting the row
+        # *index* instead and slicing with .iloc keeps this correct
+        # regardless of that numpy/pandas behavior change.
+        row_groups = np.array_split(np.arange(len(data)), n_partitions)
+        split_data = [data.iloc[idx] for idx in row_groups]
         for i, df_part in enumerate(split_data):
             self.all_partitions[i] = Partition(df_part, partition_id=i)
         print(f"[INIT] Created {len(self.all_partitions)} partitions.")
 
-    def initialize_cache(self, k: int):
-        """Pre-load first k partitions into cache"""
+    def initialize_cache(self, k: int) -> None:
+        """Set the cache capacity to `k` partitions and pre-load the first `k`.
+
+        Args:
+            k: Number of partitions the cache may hold at once (also
+                defines the RL action space size: `k` eviction choices
+                plus one "no eviction" action).
+        """
         self.cache_length = k
         for i in range(min(k, len(self.all_partitions))):
             self.load_partition(self.all_partitions[i])
         print(f"[CACHE INIT] Pre-loaded {k} partitions into cache.")
 
-    def load_rl_model(self, model_path: str = "dqn_policy_net.pth"):
+    def load_rl_model(self, model_path: str = "dqn_policy_net.pth") -> None:
         """
-        Load the trained DQN model from file for RL eviction policy.
+        Load a trained DQN checkpoint for the "RL" eviction policy.
+
+        If the file doesn't exist, leaves `self.rl_model = None`, in
+        which case `_rl_decide_eviction` falls back to a uniform-random
+        choice among cached partitions rather than failing.
+
+        Args:
+            model_path: Path to a `state_dict` saved via `torch.save`.
         """
         if not os.path.exists(model_path):
             print(f"[RL] Model file not found at {model_path}. RL will use random decisions.")
             self.rl_model = None
             return
 
-        # Infer input/output dimensions (modify if you changed them)
-        state_dim = 34  # length of cache state vector
-        num_actions = 6  # number of possible eviction actions (4 partitions + 1 'no eviction')
-
-        class DQN(torch.nn.Module):
-            def __init__(self, input_dim, output_dim):
-                super().__init__()
-                self.net = torch.nn.Sequential(
-                    torch.nn.Linear(input_dim, 128),
-                    torch.nn.ReLU(),
-                    torch.nn.Linear(128, 128),
-                    torch.nn.ReLU(),
-                    torch.nn.Linear(128, output_dim)
-                )
-
-            def forward(self, x):
-                return self.net(x)
-
-        self.rl_model = DQN(state_dim, num_actions)
+        # Architecture and dimensions come from dqn_model.py (the single
+        # canonical definition shared by this class and both training
+        # scripts): STATE_DIM=38 matches initialize_cache(k=5) (5
+        # partition slots -> 5*6 per-partition features + 8 global
+        # features, see _get_cache_state_vector) and NUM_ACTIONS=6 = 5
+        # evictable slots + 1 "no eviction" no-op.
+        self.rl_model = DQN(STATE_DIM, NUM_ACTIONS)
         self.rl_model.load_state_dict(torch.load(model_path, map_location=torch.device("cpu")))
         self.rl_model.eval()
         print(f"[RL] Loaded DQN model from {model_path} ✅")
 
-    def _rl_decide_eviction(self,query_filters) -> Optional[int]:
+    def _rl_decide_eviction(self, query_filters: Dict[str, Any]) -> Optional[int]:
         """
-        Decide which partition to evict using trained DQN model.
-        If the action index >= len(cache), interpret as 'no eviction'.
+        Pick which cached partition to evict via a forward pass of the
+        trained DQN, or None to signal "no eviction".
+
+        Action space: index into the *current* list of cached partition
+        ids (`list(self.cache.keys())`) — an action index at or beyond
+        the current cache size is interpreted as the "no eviction"
+        no-op action, so the effective action space shrinks/grows with
+        how full the cache currently is.
+
+        Args:
+            query_filters: The filters of the query that triggered this
+                eviction decision; folded into the state vector via
+                `_get_cache_state_vector` (global hit/miss signal for
+                this specific query).
+
+        Returns:
+            The partition id to evict, or None for "no eviction".
         """
         if not hasattr(self, "rl_model") or self.rl_model is None:
             print("[RL] No model loaded — using random eviction.")
             return np.random.choice(list(self.cache.keys()))
 
-        # Build current cache state vector (same as training)
+        # Build current cache state vector (same layout used at training time)
         state,order = self._get_cache_state_vector(query_filters)
         state_tensor = torch.tensor(state, dtype=torch.float32).unsqueeze(0)
 
@@ -112,8 +196,23 @@ class Executor:
     # Core Cache Logic
     # -----------------------------
 
-    def load_partition(self, partition: Partition,query_filters = None):
-        """Load a new partition into cache (with eviction if needed)."""
+    def load_partition(self, partition: Partition, query_filters: Optional[Dict[str, Any]] = None) -> None:
+        """Insert `partition` into the cache, evicting first if at capacity.
+
+        Args:
+            partition: The partition to load (on a cache miss).
+            query_filters: Filters of the triggering query; forwarded to
+                `evict_partition` for the RL policy's state vector.
+
+        Behavior note: if the RL policy's eviction decision is "no
+        eviction" (`self.flag` set True by `evict_partition`), the new
+        partition is deliberately *not* cached — the whole point of the
+        no-op action is to leave the cache exactly as-is even though the
+        query just missed. `self.flag` is a one-shot signal consumed
+        here and reset immediately; it assumes `evict_partition` is
+        always called (via the `while` loop below) immediately before
+        this check on the same call to `load_partition`.
+        """
         pid = partition.partition_id
         size = partition.size_in_memory
 
@@ -134,11 +233,27 @@ class Executor:
             self.total_cache_used += size
         #print(f"[LOAD] Cached Partition {pid} ({size / 1024**2:.2f} MB)")
 
-    import numpy as np
-    from typing import Optional
+    def evict_partition(self, query_filters: Optional[Dict[str, Any]] = None) -> Optional[int]:
+        """Evict one partition from the cache according to `self.eviction_policy`.
 
-    def evict_partition(self,query_filters = None) -> Optional[int]:
-        """Evict one partition based on policy."""
+        Args:
+            query_filters: Only used by the "RL" policy, to build the
+                state vector fed to the DQN.
+
+        Returns:
+            For LRU/LFU/FIFO/RANDOM: the id of the *next* partition that
+            would be evicted after this one (informational only, used in
+            a log line — not acted on by callers). For "RL": always None
+            (the "next in line" concept doesn't apply to a value-based
+            single-step decision). Also returns None if the cache is
+            already empty, or if the RL policy chooses "no eviction" (in
+            which case `self.flag` is set so `load_partition` skips
+            caching the new partition — see `load_partition`).
+
+        Raises:
+            ValueError: If `self.eviction_policy` is not one of
+                LRU/LFU/FIFO/RANDOM/RL.
+        """
         if not self.cache:
             return None
 
@@ -181,6 +296,7 @@ class Executor:
         evicted = self.cache.pop(evict_id)
         self.total_cache_used -= evicted.size_in_memory
         evicted.is_cached = False
+        self.total_evictions += 1
 
         # Optional logging
         print(f"[EVICT] Partition {evict_id} evicted using {self.eviction_policy}. Next in line: {next_evict_id}")
@@ -195,10 +311,23 @@ class Executor:
 
     def execute_query(self, query_filters: Dict[str, Any]) -> List[Partition]:
         """
-        Execute query:
-          - Check which partitions are relevant (non-pruned)
-          - Cache hit if already loaded
-          - Cache miss if not cached
+        Execute a query against all partitions, updating cache/hit-miss
+        state as a side effect:
+          - Prune partitions that provably can't match (via `Partition.can_prune`).
+          - For each non-pruned partition: cache hit if already loaded,
+            otherwise a miss that triggers `load_partition` (and possibly
+            an eviction).
+          - Appends a per-query summary dict to `self.query_log`.
+
+        Args:
+            query_filters: Filter dict, same shape accepted by
+                `Partition.can_prune` / `Partition.filter_rows`.
+
+        Returns:
+            The list of Partition objects that matched (were not pruned),
+            in partition-id order — this returns full Partition objects,
+            not the filtered rows; call `.filter_rows(query_filters)` on
+            each if row-level data is needed.
         """
         hits, misses = 0, 0
         matched_partitions = []
@@ -256,7 +385,27 @@ class Executor:
     # Metrics and Utilities
     # -----------------------------
 
-    def get_instant_cache_hit_ratio(self,query_filters: Dict[str, Any]) -> float:
+    def get_instant_cache_hit_ratio(self, query_filters: Dict[str, Any]) -> Tuple[int, int]:
+        """Count hits/misses this specific query would produce against the current cache.
+
+        Read-only: unlike `execute_query`, does not mutate cache state,
+        access counts, or `self.total_hits`/`self.total_misses`. Used to
+        build the RL state vector and reward simulation without disturbing
+        real cache statistics.
+
+        FIXED (previously a bug): this used to return the bare int `0`
+        when no partition matched `query_filters`, instead of a
+        `(0, 0)` tuple, which crashed every `hits, miss = ...` caller
+        (`_rl_decide_eviction` -> `_get_cache_state_vector`,
+        `_simulate_multi_query_reward`) the first time a query matched
+        zero partitions. Now always returns a 2-tuple.
+
+        Args:
+            query_filters: Filter dict identifying which partitions are relevant.
+
+        Returns:
+            `(total_hits, total_miss)` tuple; `(0, 0)` if no partition matches.
+        """
         total_hits = 0
         total_miss = 0
         for pid, partition in self.all_partitions.items():
@@ -268,15 +417,15 @@ class Executor:
 
                 else:
                     total_miss += 1
-        if total_hits + total_miss == 0:
-            return 0
         return (total_hits, total_miss)
 
     def get_cache_hit_ratio(self) -> float:
+        """Return the cumulative hit ratio in [0, 1] across all `execute_query` calls so far."""
         total = self.total_hits + self.total_misses
         return self.total_hits / total if total > 0 else 0.0
 
     def get_cache_summary(self) -> Dict[str, Any]:
+        """Return a snapshot dict of policy name, cache occupancy (MB/count), and hit ratio."""
         return {
             "policy": self.eviction_policy,
             "cached_partitions": len(self.cache),
@@ -286,17 +435,52 @@ class Executor:
             "cache_hit_ratio": self.get_cache_hit_ratio()
         }
 
-    def show_cache_state(self):
+    def show_cache_state(self) -> None:
+        """Print every cached partition and the running hit ratio (debugging aid)."""
         print("\n[CACHE STATE]")
         for pid, part in self.cache.items():
             print(str(part))
         print(f"Total Cache Used: {self.total_cache_used / 1024**2:.2f} MB | "
               f"Hit Ratio: {self.get_cache_hit_ratio():.2f}")
 
-    def _simulate_multi_query_reward(self, simulated_cache, future_queries, weights):
+    def _simulate_multi_query_reward(
+        self,
+        simulated_cache: Dict[int, Partition],
+        future_queries: List[Dict[str, Any]],
+        weights: List[float],
+    ) -> float:
         """
-        Simulate next K queries and compute weighted reward.
-        Uses hit_ratio improvement.
+        Reward shaping for offline RL data generation: rather than a
+        single-step ±1 hit/miss signal, this estimates how a *candidate*
+        post-eviction cache would perform over several *hypothetical*
+        future queries, so an eviction is rewarded/penalized by its
+        effect on near-future hit ratio rather than just the immediate
+        query.
+
+        NOTE: this reward is purely hit-ratio-based (no recomputation
+        cost is used) — it does not match the "cost-aware" reward the
+        README describes for the DDQN training pipeline
+        (`new_run/train_stable_dqn.py` consumes a `replay_buffer_cost_aware.csv`
+        that this function does not produce). See review summary.
+
+        Method: computes a `baseline` hit ratio over `future_queries`
+        using the *current* (pre-eviction) cache, then for each future
+        query computes the hit ratio the `simulated_cache` (post-eviction
+        candidate) would achieve, and accumulates
+        `weight[i] * (hit_ratio_i - baseline)` — i.e. a weighted sum of
+        hit-ratio improvement over doing nothing. Weights let later
+        future queries count more (see `_sample_future_queries` callers,
+        which pass increasing weights) as a crude recency/discounting
+        proxy.
+
+        Args:
+            simulated_cache: Candidate cache contents after a hypothetical eviction.
+            future_queries: Synthetic queries to evaluate the candidate against.
+            weights: Per-future-query weight, same length as `future_queries`.
+
+        Returns:
+            Weighted sum of hit-ratio improvement over the baseline
+            (can be negative if the candidate performs worse).
         """
         reward = 0.0
 
@@ -330,10 +514,23 @@ class Executor:
 
         return reward
 
-    def _sample_future_queries(self, N=5):
+    def _sample_future_queries(self, N: int = 5) -> List[Dict[str, Any]]:
         """
         Generate N synthetic future queries for multi-step reward simulation.
         You can replace this with real workload traces later.
+
+        Query "shape" is chosen uniformly at random from 5 fixed types
+        (amount/category/date/state_segment/customer); the categories,
+        states, and segments sampled from are hardcoded here (magic
+        values) and duplicated from the `__main__` block below and from
+        `evaluate_policies.py` — consider centralizing them in a shared
+        workload-generation module or config.
+
+        Args:
+            N: Number of synthetic queries to generate.
+
+        Returns:
+            List of N query filter dicts.
         """
         categories = ["Electronics", "Clothing", "Books", "Toys"]
         states = ["CA", "NY", "TX", "FL", "WA"]
@@ -359,14 +556,47 @@ class Executor:
 
         return queries
 
-    def run_query_and_record_rl_data(self, query_filters: Dict[str, Any], replay_buffer: List[Dict[str, Any]],
-                                     top_k: int = None):
+    def run_query_and_record_rl_data(
+        self,
+        query_filters: Dict[str, Any],
+        replay_buffer: List[Dict[str, Any]],
+        top_k: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
         """
-        Run query and record transitions for RL:
-        (query, current_cache_state, action, new_cache_state)
+        Run one query and, for every resulting cache miss, log one offline
+        RL transition per *candidate* eviction (plus one "do nothing"
+        transition), for later use in `write_replay_buffer_simple`.
 
-        Each cache miss triggers simulation of possible evictions.
-        Reward is not computed here — only state transitions are logged.
+        For each miss:
+          1. Capture the current cache state vector (before eviction).
+          2. Shortlist candidate partitions to evict — either all cached
+             partitions, or (if `top_k` is set) the `top_k` least-recently-used.
+          3. For each candidate: simulate evicting it and inserting the
+             new (missed) partition, score that hypothetical cache with
+             `_simulate_multi_query_reward`, and log a transition with
+             that reward.
+          4. Also log a "no-op" transition (new_cache == current_state,
+             reward 0.0) using the next available action index.
+          5. Actually apply the real cache update via `load_partition`
+             (using the *real* eviction policy, not the simulated candidates).
+
+        NOTE: docstring header says "reward is not computed here" but
+        `reward` is in fact computed per candidate via
+        `_simulate_multi_query_reward` and stored in each transition dict
+        — the header comment appears stale.
+
+        Args:
+            query_filters: Filters for this query.
+            replay_buffer: List to append new transition dicts to (mutated
+                and also returned).
+            top_k: If set, restricts eviction candidates to the `top_k`
+                least-recently-used cached partitions (candidate action
+                space is then smaller than `initialize_cache`'s `k`).
+
+        Returns:
+            The same `replay_buffer` list, with new transitions appended.
+            Each transition dict has keys: current_cache (np.ndarray),
+            action (int), new_cache (np.ndarray), reward (float).
         """
         print(f"\n[RL QUERY RUN] Filters: {query_filters}")
         matched_partitions = []
@@ -437,8 +667,84 @@ class Executor:
 
         return replay_buffer
 
-    def _get_cache_state_vector(self, queryFilters ,cache_state=None):
-        """Flatten cache-level features into a vector for DQN input."""
+    @staticmethod
+    def _classify_query_intent(query_filters: Dict[str, Any]) -> Tuple[float, float]:
+        """Classify a query's filter values as temporal / categorical / numerical intent.
+
+        This is the "workload / query-context" signal described in the
+        README's MDP formulation. Rather than inspecting partition
+        column dtypes, it inspects the filter *values* directly (a
+        date/datetime value -> temporal; a string value -> categorical;
+        anything else, e.g. int/float -> numerical), which is cheap and
+        needs no partition lookups. A query can combine multiple filters
+        (e.g. `{"state": ("=", "CA"), "segment": ("=", "Premium")}`), so
+        both flags can be 1.0 at once; numerical-only intent is implicitly
+        represented as (0.0, 0.0).
+
+        Args:
+            query_filters: Filter dict as accepted by `Partition.can_prune`
+                (values are `(operator, value)` tuples or lists).
+
+        Returns:
+            `(is_temporal, is_categorical)` as 0.0/1.0 floats.
+        """
+        is_temporal = 0.0
+        is_categorical = 0.0
+        for condition in query_filters.values():
+            values = condition if isinstance(condition, list) else [condition[1]] if isinstance(condition, tuple) and len(condition) == 2 else []
+            for v in values:
+                if isinstance(v, (pd.Timestamp, datetime)):
+                    is_temporal = 1.0
+                elif isinstance(v, str):
+                    is_categorical = 1.0
+        return is_temporal, is_categorical
+
+    # Canonical 38-feature state vector (STATE_DIM in dqn_model.py):
+    #   Per cached partition (6 features x up to 5 slots = 30 features),
+    #   in `cache.items()` iteration order:
+    #     [0] access_count               - int, times this partition has been read
+    #     [1] seconds_since_last_access  - float, recency signal
+    #     [2] size_in_memory_mb          - float, partition size in MB
+    #     [3] row_count                  - int, rows in this partition
+    #     [4] column_count               - int, columns in this partition
+    #     [5] is_cached                  - bool (always True for a cached partition)
+    #   Global features (8), appended after all partition blocks:
+    #     [30] num_cached_partitions     - int, len(cache)
+    #     [31] instant_hits              - int, partitions in `cache` matching `queryFilters`
+    #     [32] instant_misses            - int, matching partitions NOT in `cache`
+    #     [33] instant_hit_ratio         - float in [0, 1], instant_hits / (instant_hits + instant_misses)
+    #     [34] cache_utilization         - float in [0, 1], total_cache_used / max_cache_size
+    #     [35] rolling_eviction_rate     - float, total_evictions / total queries served so far
+    #     [36] query_is_temporal         - 0.0/1.0, from _classify_query_intent
+    #     [37] query_is_categorical      - 0.0/1.0, from _classify_query_intent
+    def _get_cache_state_vector(self, queryFilters: Dict[str, Any], cache_state: Optional[Dict[int, Partition]] = None):
+        """Flatten cache + query context into the fixed-length feature vector fed to the DQN.
+
+        See the feature-list comment directly above this method for the
+        full, named 38-feature layout (STATE_DIM in dqn_model.py).
+
+        Partition order (and hence feature order) follows `cache.items()`
+        iteration order, which is insertion/access order for the
+        OrderedDict-backed real cache — i.e. the state vector's layout
+        shifts depending on cache history, not a fixed partition-id slot
+        assignment. `pid_list` (only returned for the "RL" policy) records
+        which partition id occupies each per-partition feature block, so
+        `_rl_decide_eviction` can map the DQN's chosen action index back
+        to a concrete partition id.
+
+        Args:
+            queryFilters: The triggering query's filters — used for the
+                global hit/miss/ratio features and the query-intent flags.
+            cache_state: Optional cache dict to compute the vector over,
+                for scoring hypothetical/simulated caches instead of the
+                live `self.cache`.
+
+        Returns:
+            If `self.eviction_policy == "RL"`: a tuple
+            `(feature_vector: np.ndarray, pid_list: list[int])`.
+            Otherwise: just the `feature_vector` (breaking the otherwise
+            consistent tuple return — callers must branch on policy).
+        """
         cache = cache_state if cache_state is not None else self.cache
         features = []
         pid_list = []
@@ -452,23 +758,35 @@ class Executor:
                 len(part.data.columns),
                 part.is_cached
             ])
-        # Add global cache stats
-        hits,miss = self.get_instant_cache_hit_ratio(queryFilters)
-        if hits + miss == 0:
-            ratio = 0
-        else:
-            ratio = hits / (hits + miss)
+        # Global cache stats
+        hits, miss = self.get_instant_cache_hit_ratio(queryFilters)
+        ratio = hits / (hits + miss) if (hits + miss) > 0 else 0.0
+        cache_utilization = self.total_cache_used / self.max_cache_size if self.max_cache_size > 0 else 0.0
+        queries_served = self.total_hits + self.total_misses
+        rolling_eviction_rate = self.total_evictions / queries_served if queries_served > 0 else 0.0
+        is_temporal, is_categorical = self._classify_query_intent(queryFilters)
         features.extend([
             len(cache),  # number of cached partitions
             hits,
             miss,
-            ratio
+            ratio,
+            cache_utilization,
+            rolling_eviction_rate,
+            is_temporal,
+            is_categorical,
         ])
         if self.eviction_policy == "RL":
             return (np.array(features, dtype=float), pid_list)
         return np.array(features, dtype=float)
 
-    def warmup_cache(self, queries: List[Dict[str, Any]], policy="LRU"):
+    def warmup_cache(self, queries: List[Dict[str, Any]], policy: str = "LRU") -> None:
+        """Run `queries` under a temporarily-overridden policy to warm the cache before evaluation.
+
+        Args:
+            queries: Sequence of query filter dicts to execute in order.
+            policy: Eviction policy to use only for this warm-up (restored
+                to `self.eviction_policy` afterward).
+        """
         print(f"[WARMUP] Starting warm-up with {len(queries)} queries using {policy}")
         old_policy = self.eviction_policy
         self.eviction_policy = policy
@@ -478,7 +796,12 @@ class Executor:
         print(f"[WARMUP] Completed. Cache hit ratio baseline: {self.get_cache_hit_ratio():.3f}")
 
 
-    def write_replay_buffer_simple(self, replay_buffer, csv_file, policy_label=None):
+    def write_replay_buffer_simple(
+        self,
+        replay_buffer: List[Dict[str, Any]],
+        csv_file: str,
+        policy_label: Optional[str] = None,
+    ) -> None:
         """
         Write replay buffer to CSV with only state, action, next_state, reward.
         Automatically appends if file already exists.
@@ -557,7 +880,7 @@ if __name__ == "__main__":
     # -------------------------------
     # Parameters
     # -------------------------------
-    POLICIES = ["LRU", "LFU", "FIFO", "RANDOM"]
+    POLICIES = ["LRU", "LFU", "FIFO", "RANDOM"]  # RL excluded: this script *generates* its training data
     N_WORKLOADS_PER_POLICY = 1500  # 1500 * 4 ≈ 6000 queries total
     replay_buffer = []
 
