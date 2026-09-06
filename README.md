@@ -1,120 +1,45 @@
-# The Cost of a Miss: RL-Driven Cache Eviction (RlCacheSpark)
+# The Cost of a Miss: RL-Driven Cache Eviction
 
-**Suhas Ramesh Vittal** · Department of Computer Science · Golisano College of Computing and Information Sciences · Rochester Institute of Technology · Rochester, NY
+**Suhas Ramesh Vittal** · Department of Computer Science · Golisano College of Computing and Information Sciences · Rochester Institute of Technology
 
-Distributed data processing frameworks such as **Apache Spark** rely on the cache to cut query latency. Spark partitions are **heterogeneous** in recomputation cost, but the default policy **LRU** treats every cached block alike—so it can evict “heavy” partitions (expensive to rebuild) while keeping “light” ones. That **cost blindness** hurts **tail latency** (e.g. P99) even when average hit ratio looks fine.
+A Spark-inspired cache simulator plus an offline **Double DQN** agent that learns *cost-aware* partition eviction — retaining expensive-to-recompute partitions instead of treating every cache miss the same. Against a shared query workload, the trained policy cuts **P99 latency by ~35%** versus LRU while improving hit ratio by ~12%, including on workloads it never saw during training.
 
-This repository is a **Spark-inspired executor simulator** plus **offline reinforcement learning** that learns **cost-aware** evictions: a **Double DQN (DDQN)** trained on logged transitions, with rewards based on **recomputation penalties** rather than a simple hit/miss bit. The full write-up is in **`report.docx`** (same title as this project).
+**Python · PyTorch · Reinforcement Learning (DDQN) · Distributed Systems · Simulation Design**
 
----
+## Results
 
-## At a glance
-
-| | |
-|--|--|
-| **Goal** | Dynamic eviction that adapts to workload shifts and protects expensive partitions. |
-| **Training** | **Offline RL** on a large replay buffer (states from LRU/LFU/FIFO/RANDOM mixes). |
-| **Algorithm** | **DDQN**, **Huber loss**, **soft target updates**, **feature normalization** (stability under noisy Spark-like workloads). |
-| **Experimental summary** | ~**35%** improvement in **P99 latency** vs LRU (avg.); ~**12%** hit-ratio improvement; **~12%** avg. improvement over LRU on **unseen** query patterns. |
-
-*Exact numbers depend on your simulator settings and seeds; reproduce with `evaluate_policies.py` and your trained weights.*
-
----
-
-## Results preview
-
-### Hit ratio by policy (evaluation run)
+### Hit ratio by policy
 
 ![Final cache hit ratio by policy](docs/images/final_hit_ratio_by_policy.png)
 
-### Phase shift workload (temporal → categorical)
+### Adapting to a workload phase shift
 
-LRU can thrash after an abrupt shift; the RL policy uses **query context** in the state to adapt faster.
-
-![Hit ratio timeline under moving / phase-shift workload](docs/images/phase_shift_timeline.png)
+![Hit ratio timeline under a phase-shift workload](docs/images/phase_shift_timeline.png)
 
 ### P99 tail latency
 
-Cost-aware eviction targets **tail** behavior, not just average hit rate.
-
 ![P50 vs P99 latency by policy](docs/images/p99_latency.png)
 
----
+*Reproduce with `scripts/evaluate_policies.py` + `scripts/plot_results.py`; exact numbers depend on your seed and simulator settings.*
 
-## Why LRU is not enough
+## Why this matters
 
-- **Static policy:** LRU does not adapt when access patterns change.
-- **Equal miss cost:** A miss on a cheap partition (~10 ms) and a miss on an expensive one (~1000 ms+) are not the same in production, but LRU does not distinguish them.
-- **Hit ratio alone** can miss the point: a small fraction of misses on heavy partitions can dominate tail latency.
+A cache miss on the wrong partition doesn't just slow down one query — it's the difference between a dashboard that loads in half a second and one that hangs while a customer waits. Standard cache policies like LRU treat every eviction the same, so they occasionally evict exactly the data that's most expensive to rebuild, and that's precisely what shows up as the slow, unpredictable requests users remember. By teaching the cache *which* data is costly to lose, this system targets that worst-case tail rather than just the average case — the kind of reliability improvement that shows up as fewer timeout complaints, not just a nicer-looking chart.
 
-This work shifts from **discrete hit/miss rewards** toward **normalized, cost-aware penalties** tied to eviction and recomputation cost, so the agent can preferentially retain partitions that matter for worst-case latency.
+## Architecture
 
----
+```mermaid
+flowchart LR
+    A["Simulator\nsrc/executor.py"] -->|"logged (state, action,\nreward, next_state)"| B["Replay buffer\nCSV"]
+    B --> C["DDQN training\nscripts/train_stable_dqn.py"]
+    C -->|"checkpoint .pth"| D["Evaluation\nscripts/evaluate_policies.py"]
+    A -.->|"LRU / LFU / FIFO / RANDOM\ndrive data collection"| B
+    D --> E["Plots\nscripts/plot_results.py"]
+```
 
-## System overview
+The simulator drives multiple eviction policies over synthetic query workloads to build a replay buffer; the DDQN trainer learns a Q-function offline from that buffer (see [`docs/THEORY.md`](docs/THEORY.md) for the full MDP formulation and stabilizer rationale); the trained checkpoint is loaded back into the simulator as the "RL" policy and compared against the baselines; results are plotted for analysis.
 
-### Simulator instead of a live Spark cluster
-
-RL needs many interactions. Running inside a real Spark/JVM stack is slow (startup, network). This repo implements a **lightweight executor model** that captures:
-
-- Fixed executor memory and a **cache of partitions** (sizes tunable).
-- **Partition metadata** (size, recomputation cost, access stats, recency, query match / match ratio).
-- **Filter pushdown–style** matching: predicates are checked against metadata before touching row data.
-- **Eviction cycle:** on a full-cache miss, an eviction is chosen; the **evicted partition’s recomputation cost** feeds cost and analysis (e.g. P99).
-
-### MDP formulation
-
-- **State** combines (1) **per-partition** features for cached partitions, (2) a **workload / query-context** vector (e.g. temporal vs categorical vs numerical intent), and (3) **global cache** signals (utilization, rolling eviction rate / thrashing pressure).
-- **Actions:** discrete choice of **which cached partition to evict** (or **no eviction** when the design allows)—here the cache holds a small fixed number of partitions (e.g. five slots) → **six** actions including “no op.”
-- **Reward:** **cost-aware**—penalties tied to **recomputation cost** of evicted or missed work, not ±1 hit/miss. This encourages **weighted** behavior: accept smaller penalties on light partitions to avoid large ones on heavy partitions.
-
-### Offline data and network
-
-- A **replay buffer** of **(state, action, reward, next_state)** is built by driving the simulator with **multiple** eviction policies so the value function sees both good and bad cache states.
-- Early **DQN** runs showed **overestimation** and instability; training uses **DDQN**, **Huber loss** (outliers), and **soft target networks** for smoother learning.
-
----
-
-## Experiments (high level)
-
-**LRU, LFU, FIFO, RANDOM**, and **RL** are compared on shared query traces:
-
-- **Trained / mixed** workloads — check convergence.
-- **Phase shift** — e.g. temporal-heavy → categorical-heavy mid-run; LRU **thrashes** while the RL agent uses **query context** to adapt faster.
-- **Unseen** workloads — new ranges/categories; tests **generalization**, not memorization.
-
-Metrics emphasize **cache hit ratio**, **P50**, and especially **P99 latency** as the tail-sensitive target.
-
-### Limitations
-
-- Simulator **collapses** real costs (I/O, skew, serialization) into **scalars**—production costs are messier.
-- **Action/state size** grows with cache width; at **cluster** scale (millions of partitions), new designs (top-K, hierarchical policies) would be needed.
-- **Offline** training is tied to the buffer distribution; **distribution shift** may require **retraining** or **online** RL later.
-
-### Future directions
-
-- **Online RL** for continual adaptation.
-- **Proactive** cache management (use idle time), not only reactive evictions.
-
----
-
-## This repository: code map
-
-| Artifact | Purpose |
-|----------|---------|
-| `DataSetProcessing.py` | `Partition` objects: typed storage, metadata, size estimates. |
-| `executor.py` | Cache simulator, query execution, eviction policies including **RL** (loads `dqn_policy_net.pth` by default). |
-| `evaluate_policies.py` | Compare policies on the same workload; timelines and summaries for analysis/plots. |
-| `dqn_training.py` | Offline DQN training from CSV replay data; checkpoints + logs (generated locally). |
-| `new_run/train_stable_dqn.py` | **DDQN**-style training with stabilizers (Huber, soft updates, etc.). |
-| `plot_results.py` | Figures from `policy_evaluation_summary.csv` / `policy_timeline_data.csv`. |
-| `data_explore.py` | Small exploratory plots for datasets. |
-
-Checkpoints (`.pth`), large `replay_buffer*.csv` files, PNG outputs (except **tracked images under `docs/`**), and IDE/OS junk are **gitignored** so the repo stays clone-friendly. After cloning, install deps, regenerate buffers and weights locally, then run evaluation and plotting.
-
----
-
-## Setup
+## How to run
 
 ```bash
 python -m venv .venv
@@ -122,25 +47,36 @@ source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-## Typical workflow
+```bash
+# 1. Generate replay data by driving the simulator with baseline policies
+python src/executor.py
 
-1. Run the simulator to produce **replay** data in the format expected by `dqn_training.py` / `train_stable_dqn.py`.
-2. **Train** → obtain `dqn_policy_net.pth` (or a name you pass into the executor).
-3. **Evaluate** → `python evaluate_policies.py`.
-4. **Plot** → `python plot_results.py`.
+# 2. Train the DDQN policy (hyperparameters come from configs/config.yaml)
+python scripts/train_stable_dqn.py --csv ../replay_buffer_cost_aware.csv --model dqn_cost_aware_net.pth
 
----
+# 3. Evaluate all policies (writes results/*.csv)
+python scripts/evaluate_policies.py
 
-## References
+# 4. Generate plots from results/*.csv
+python scripts/plot_results.py
+```
 
-1. M. Zaharia et al., *Spark: The Definitive Guide*, O’Reilly, 2018.  
-2. R. Chen et al., “Improving Spark Cache Hit Ratio Through Learned Policies,” IEEE Big Data, 2022.  
-3. Z. Jia et al., “Optimizing Caching in Distributed Systems with Reinforcement Learning,” TKDE, 2021.  
-4. J. L. Ba et al., “Layer Normalization,” arXiv:1607.06450.  
-5. R. S. Sutton & A. G. Barto, *Reinforcement Learning: An Introduction*, 2nd ed., MIT Press, 2018.
+Run tests with `pytest`; lint with `ruff check .` (CI runs both on every push/PR — see `.github/workflows/ci.yml`).
 
----
+## At scale
 
-## Repository hygiene (for contributors)
+This simulator's action space is one discrete choice per cached partition, which is fine at 5-10 slots but doesn't scale to a real cluster's millions of partitions — a production version would need a **top-K shortlist** (candidate eviction targets narrowed by a cheap heuristic first) or a **hierarchical policy** (a fast per-executor policy feeding a slower cluster-level coordinator). Training would also need to move from this offline, logged-buffer setup toward **online RL** that adapts as workloads drift, since a policy frozen at training time will degrade as query patterns change. Recomputation cost here is a simple size-proportional placeholder; a production deployment would need real lineage-derived cost estimates from the query planner.
 
-The GitHub-oriented cleanup added **`.gitignore`**, **`requirements.txt`**, and stopped tracking **large CSVs**, **weights**, **generated plots**, and **IDE/caches**. **`report.docx`** holds the long-form document; this README is the **landing page** with curated figures under **`docs/`** (e.g. **`docs/images/`**).
+## Repo structure
+
+```
+src/          executor.py, DataSetProcessing.py, dqn_model.py — simulator + shared DQN
+scripts/      dqn_training.py, train_stable_dqn.py, evaluate_policies.py, plot_results.py, data_explore.py
+tests/        pytest suite (partition mechanics, eviction, cost-aware reward)
+configs/      config.yaml — training hyperparameters
+data/         sample.csv — small tracked sample data
+results/      policy_*.csv — tracked evaluation outputs
+docs/         THEORY.md (deep dive), images/ (report figures)
+```
+
+See [`docs/THEORY.md`](docs/THEORY.md) for the full MDP formulation, experiment design, limitations, and references.
