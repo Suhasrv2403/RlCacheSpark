@@ -18,12 +18,18 @@ via `dqn_model.py` (see that module's docstring for the 34-vs-38
 reconciliation), so checkpoints trained by either script are
 architecture-compatible.
 
-Inputs: replay_buffer_multi_policy.csv (hardcoded), a flat CSV with N
+Inputs: replay_buffer_multi_policy.csv (path configurable via
+    config.yaml's dqn_training.replay_buffer_csv), a flat CSV with N
     state columns, 1 action column, N next-state columns, 1 reward
     column, where N is inferred from the CSV's column count (see
     `generate_offline_data_from_cache`) rather than hardcoded.
 Outputs: dqn_policy_net.pth (model checkpoint, saved every 10 epochs and
     at the end), training_log.csv (per-epoch loss/Q-value log).
+
+Hyperparameters are loaded from config.yaml's `dqn_training` section
+(see `dqn_model.load_config`), falling back to the hardcoded defaults
+below if the file or a given key is missing, so this still runs with
+zero args.
 """
 
 import torch
@@ -38,7 +44,17 @@ import csv
 from math import ceil
 from typing import Optional
 
-from dqn_model import DQN, STATE_DIM, NUM_ACTIONS
+from dqn_model import DQN, STATE_DIM, NUM_ACTIONS, load_config
+
+_FULL_CONFIG = load_config()
+_CONFIG = _FULL_CONFIG.get("dqn_training", {})
+_SEED = _FULL_CONFIG.get("seed", 42)
+
+# Seed every RNG this script touches, so a fixed replay buffer gives a
+# fully reproducible run (previously nothing here was seeded at all).
+torch.manual_seed(_SEED)
+np.random.seed(_SEED)
+random.seed(_SEED)
 
 # -----------------------------
 # Replay Buffer
@@ -150,20 +166,22 @@ def train_offline_dqn() -> None:
     exposes them via argparse) — see review summary for a proposed
     config.yaml consolidating these values.
     """
-    # 1️⃣ Hyperparameters
-    num_actions = NUM_ACTIONS  # cache_length (5) candidate evictions + 1 "no eviction" no-op
-    gamma = 0.98  # discount factor for future reward
-    batch_size = 128
-    lr = 5e-4
-    num_epochs = 50
-    update_target_every = 5  # hard target-network sync period, in epochs (see soft updates in train_stable_dqn.py)
-    model_path = "dqn_policy_net.pth"
-    log_path = "training_log.csv"
+    # 1️⃣ Hyperparameters (from config.yaml's `dqn_training` section,
+    # falling back to these defaults if the file/key is missing)
+    num_actions = _CONFIG.get("num_actions", NUM_ACTIONS)  # cache_length (5) candidate evictions + 1 "no eviction" no-op
+    gamma = _CONFIG.get("gamma", 0.98)  # discount factor for future reward
+    batch_size = _CONFIG.get("batch_size", 128)
+    lr = _CONFIG.get("learning_rate", 5e-4)
+    num_epochs = _CONFIG.get("num_epochs", 50)
+    update_target_every = _CONFIG.get("target_update_frequency_epochs", 5)  # hard target-network sync period, in epochs (see soft updates in train_stable_dqn.py)
+    model_path = _CONFIG.get("model_path", "dqn_policy_net.pth")
+    log_path = _CONFIG.get("training_log_csv", "training_log.csv")
+    replay_buffer_csv = _CONFIG.get("replay_buffer_csv", "replay_buffer_multi_policy.csv")
 
     # 2️⃣ Load replay buffer (state_dim is inferred from the CSV itself,
     # not assumed, so this trainer stays correct even if the state
     # vector's feature count changes upstream in executor.py)
-    offline_data = generate_offline_data_from_cache("replay_buffer_multi_policy.csv")
+    offline_data = generate_offline_data_from_cache(replay_buffer_csv)
     state_dim = len(offline_data[0][0])
     replay_buffer = ReplayBuffer(capacity=len(offline_data))
     for s, a, r, s_next in offline_data:
@@ -230,8 +248,9 @@ def train_offline_dqn() -> None:
         if epoch % update_target_every == 0:
             target_net.load_state_dict(policy_net.state_dict())
 
-        # Save checkpoint every 10 epochs (magic number, not configurable)
-        if epoch % 10 == 0 or epoch == num_epochs - 1:
+        # Save a checkpoint every `checkpoint_every_epochs` epochs
+        checkpoint_every = _CONFIG.get("checkpoint_every_epochs", 10)
+        if epoch % checkpoint_every == 0 or epoch == num_epochs - 1:
             torch.save(policy_net.state_dict(), model_path)
             print(f"💾 Model checkpoint saved at epoch {epoch}")
 

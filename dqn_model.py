@@ -28,12 +28,40 @@ defined here so every consumer (training scripts, Executor) references
 the same numbers instead of re-hardcoding them.
 """
 
+from pathlib import Path
+
 import torch
 import torch.nn as nn
+import yaml
 
 STATE_DIM = 38
 NUM_ACTIONS = 6
 HIDDEN_DIM = 256
+
+# config.yaml currently lives next to this file at the repo root. If the
+# planned folder restructure moves this module to src/dqn_model.py and
+# the config to configs/config.yaml, update this path accordingly.
+DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent / "config.yaml"
+
+
+def load_config(path: Path = DEFAULT_CONFIG_PATH) -> dict:
+    """Load the repo's YAML hyperparameter config.
+
+    Args:
+        path: Path to a config.yaml (defaults to the repo-root one next
+            to this module).
+
+    Returns:
+        Parsed config dict. Callers should read via `dict.get(key,
+        <hardcoded fallback>)` so scripts keep working with zero args
+        even if a key is missing or the file itself is absent (see each
+        training script's use of this function).
+    """
+    path = Path(path)
+    if not path.exists():
+        return {}
+    with open(path, "r") as f:
+        return yaml.safe_load(f) or {}
 
 
 class DQN(nn.Module):

@@ -23,6 +23,11 @@ Outputs: `<model>` (final policy-network state_dict), periodic
     `<model>.ckpt_epoch<N>.pth` full checkpoints (policy + target net +
     optimizer state, every 500 epochs), and `results/training_loss.png`.
 
+All defaults below are loaded from config.yaml's `train_stable_dqn`
+section (see `dqn_model.load_config`); CLI flags override them when
+passed explicitly, and hardcoded fallbacks below apply if config.yaml
+or a given key is missing, so this still runs with zero args.
+
 Usage:
     python train_stable_dqn.py --csv replay_buffer_cost_aware.csv --model dqn_cost_aware_net.pth
 """
@@ -39,6 +44,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 import torch
+import torch.nn as nn
 import torch.optim as optim
 from typing import Tuple, Optional
 
@@ -48,28 +54,44 @@ from typing import Tuple, Optional
 # restructure lands (dqn_model.py -> src/dqn_model.py, this script ->
 # scripts/train_stable_dqn.py), this path needs updating to point at src/.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from dqn_model import DQN, STATE_DIM, NUM_ACTIONS  # noqa: E402
+from dqn_model import DQN, STATE_DIM, NUM_ACTIONS, load_config  # noqa: E402
+
+_FULL_CONFIG = load_config()
+_CONFIG = _FULL_CONFIG.get("train_stable_dqn", {})
+_SEED = _FULL_CONFIG.get("seed", 42)
+
+# Seed every RNG this script touches, so a fixed replay buffer gives a
+# fully reproducible run (previously nothing here was seeded at all).
+torch.manual_seed(_SEED)
+np.random.seed(_SEED)
+random.seed(_SEED)
 
 # -----------------------------
-# Config defaults (tunable)
+# Config defaults (tunable) — sourced from config.yaml, falling back to
+# these hardcoded values if config.yaml or a key is missing.
 # -----------------------------
-DEFAULT_BATCH = 1024
-DEFAULT_EPOCHS = 3000
-DEFAULT_LR = 5e-4  # Lowered LR for increased stability
-DEFAULT_GAMMA = 0.99
-DEFAULT_TAU = 0.005  # Soft update coefficient (small value for stability)
-DEFAULT_REPLAY_CAP = 500_000
+DEFAULT_BATCH = _CONFIG.get("batch_size", 1024)
+DEFAULT_EPOCHS = _CONFIG.get("num_epochs", 3000)
+DEFAULT_LR = _CONFIG.get("learning_rate", 5e-4)  # Lowered LR for increased stability
+DEFAULT_GAMMA = _CONFIG.get("gamma", 0.99)
+DEFAULT_TAU = _CONFIG.get("tau", 0.005)  # Soft update coefficient (small value for stability)
+DEFAULT_REPLAY_CAP = _CONFIG.get("replay_capacity", 500_000)
 
 # --- CRITICAL CHANGE: REWARD SCALING ADJUSTMENT ---
 # The new cost-aware reward is already normalized and small.
 # We set scale to 1.0 to prevent gradient explosion.
-DEFAULT_CLIP_REWARD = 5.0  # Clip rewards to a reasonable range for cost-based penalties
-DEFAULT_REWARD_SCALE = 1.0  # Set to 1.0 to preserve the magnitude of the cost signal
+DEFAULT_CLIP_REWARD = _CONFIG.get("reward_clip", 5.0)  # Clip rewards to a reasonable range for cost-based penalties
+DEFAULT_REWARD_SCALE = _CONFIG.get("reward_scale", 1.0)  # Set to 1.0 to preserve the magnitude of the cost signal
 # ----------------------------------------------------
 
-DEFAULT_GRAD_CLIP = 1.0
-DEFAULT_DEVICE = "cpu"
+DEFAULT_GRAD_CLIP = _CONFIG.get("grad_clip", 1.0)
+DEFAULT_DEVICE = _CONFIG.get("device", "cpu")
 RESULTS_DIR = "results"
+DEFAULT_LR_SCHEDULER_FACTOR = _CONFIG.get("lr_scheduler", {}).get("factor", 0.5)
+DEFAULT_LR_SCHEDULER_PATIENCE = _CONFIG.get("lr_scheduler", {}).get("patience", 50)
+DEFAULT_CHECKPOINT_EVERY = _CONFIG.get("checkpoint_every_epochs", 500)
+DEFAULT_CSV = _CONFIG.get("replay_buffer_csv", "../replay_buffer_cost_aware.csv")
+DEFAULT_MODEL_PATH = _CONFIG.get("model_path", "dqn_cost_aware_net.pth")
 
 
 # -----------------------------
@@ -274,9 +296,15 @@ def train_offline_dqn(csv_file: str,
     target_net.eval()
 
     optimizer = optim.Adam(policy_net.parameters(), lr=lr)
-    # Scheduler to automatically reduce LR if loss plateaus (good stabilizer)
+    # Scheduler to automatically reduce LR if loss plateaus (good stabilizer).
+    # BUG FIX: this used to pass verbose=True, which current PyTorch
+    # (2.x, verbose was removed from ReduceLROnPlateau) rejects outright
+    # with a TypeError — training could never even start. Dropped it;
+    # LR changes are still visible via the printed `lr_now` in the
+    # epoch log line below.
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min',
-                                                     factor=0.5, patience=50, verbose=True)
+                                                     factor=DEFAULT_LR_SCHEDULER_FACTOR,
+                                                     patience=DEFAULT_LR_SCHEDULER_PATIENCE)
 
     start_epoch = 0
     if resume_checkpoint and os.path.exists(resume_checkpoint):
@@ -351,7 +379,7 @@ def train_offline_dqn(csv_file: str,
             print(f"[TRAIN] Epoch {epoch:04d} | Loss: {loss.item():.6f} | LR: {lr_now:.6e}")
 
         # checkpoint occasionally
-        if (epoch + 1) % 500 == 0 or epoch == num_epochs - 1:
+        if (epoch + 1) % DEFAULT_CHECKPOINT_EVERY == 0 or epoch == num_epochs - 1:
             ckpt = {
                 'epoch': epoch + 1,
                 'policy_state': policy_net.state_dict(),
@@ -454,11 +482,9 @@ def quick_test_model(model_path: str, state_dim: int, num_actions: int, device: 
 # -----------------------------
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    # --- CRITICAL CHANGE: DEFAULT CSV NAME ---
-    parser.add_argument("--csv", type=str, default="../replay_buffer_cost_aware.csv",
+    parser.add_argument("--csv", type=str, default=DEFAULT_CSV,
                         help="replay buffer file (should contain cost-aware reward)")
-    # -----------------------------------------
-    parser.add_argument("--model", type=str, default="dqn_cost_aware_net.pth", help="file to save policy network")
+    parser.add_argument("--model", type=str, default=DEFAULT_MODEL_PATH, help="file to save policy network")
     parser.add_argument("--device", type=str, default=DEFAULT_DEVICE)
     parser.add_argument("--batch", type=int, default=DEFAULT_BATCH)
     parser.add_argument("--epochs", type=int, default=DEFAULT_EPOCHS)

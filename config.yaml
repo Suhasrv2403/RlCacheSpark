@@ -1,79 +1,84 @@
-# RLCache reproducibility config (DRAFT — not yet wired into training scripts)
+# RLCache reproducibility config — loaded by dqn_training.py and
+# new_run/train_stable_dqn.py via dqn_model.load_config().
 #
-# This file captures the DDQN training hyperparameters that are currently
-# hardcoded across dqn_training.py and new_run/train_stable_dqn.py, plus
-# the simulator settings hardcoded in executor.py / evaluate_policies.py.
-# It documents current defaults for reproducibility; it is NOT read by
-# any script yet. Wiring each script to load this file (e.g. via PyYAML
-# + argparse defaults) is listed as a follow-up in the review summary.
+# Every value here is a *default*: both scripts fall back to these
+# hardcoded-turned-configurable numbers if a key is missing or this file
+# is absent, so `python dqn_training.py` / `python train_stable_dqn.py`
+# still work with zero args. train_stable_dqn.py's CLI flags (--lr,
+# --gamma, etc.) override these when passed explicitly.
 #
-# IMPORTANT GAP: neither dqn_training.py nor new_run/train_stable_dqn.py
-# currently sets a random seed (no torch.manual_seed / random.seed /
-# np.random.seed), so training runs are NOT reproducible run-to-run even
-# with the same replay buffer. `seed` below is aspirational until that
-# is added.
+# `seed` is applied via torch.manual_seed / np.random.seed / random.seed
+# at the top of both scripts, so runs are reproducible given the same
+# replay buffer (previously neither script seeded anything).
 
-seed: 42  # not currently applied anywhere in training; only evaluate_policies.py / executor.py's __main__ seed numpy for data generation
+seed: 42
 
 # ---------------------------------------------------------------------------
-# DDQN training (new_run/train_stable_dqn.py) — values mirror its DEFAULT_*
-# module-level constants and argparse defaults.
+# Canonical DDQN trainer: new_run/train_stable_dqn.py
 # ---------------------------------------------------------------------------
-ddqn_training:
-  replay_buffer_csv: replay_buffer_cost_aware.csv
-  model_output_path: dqn_cost_aware_net.pth
+train_stable_dqn:
+  replay_buffer_csv: ../replay_buffer_cost_aware.csv
+  model_path: dqn_cost_aware_net.pth
   device: cpu
 
   batch_size: 1024
-  num_epochs: 3000            # each "epoch" is one sampled-minibatch gradient step, not a full buffer pass
+  num_epochs: 3000            # each "epoch" is one sampled-minibatch gradient step over the offline
+                               # buffer, not an episodic rollout — there's no online exploration policy
+                               # here (offline RL), hence no epsilon schedule below.
   learning_rate: 5.0e-4
-  discount_factor: 0.99       # gamma
-  soft_update_tau: 0.005      # Polyak averaging coefficient for the target network
-  replay_buffer_capacity: 500000
+  gamma: 0.99                 # discount factor
+  tau: 0.005                  # soft (Polyak) target-update coefficient, blended every step
+  replay_capacity: 500000
 
   reward_clip: 5.0            # clamp raw reward to [-reward_clip, reward_clip] before scaling
   reward_scale: 1.0
-  grad_clip_norm: 1.0
+  grad_clip: 1.0
 
   lr_scheduler:
-    type: ReduceLROnPlateau
     factor: 0.5
-    patience: 50               # epochs (measured in units of 10, since scheduler.step() only runs every 10 epochs)
+    patience: 50               # scheduler.step() calls (each call happens every 10 epochs, so this is ~500 epochs of patience)
 
-  target_update_frequency: soft_every_step   # tau-blended every gradient step (no periodic hard sync)
+  target_update_frequency: null   # N/A — soft update every step, not a periodic hard sync (see tau)
   checkpoint_every_epochs: 500
+
+  epsilon_schedule: null      # N/A — offline RL trains on a fixed logged buffer; no online
+                               # exploration/epsilon-greedy policy exists in this pipeline
 
   network:
     hidden_dim: 256
     layer_norm: true
 
 # ---------------------------------------------------------------------------
-# Vanilla DQN training (dqn_training.py) — the older, superseded pipeline.
-# Kept here only so its behavior is reproducible/comparable if retained;
-# see review summary for the recommendation to retire this script.
+# Legacy vanilla-DQN trainer: dqn_training.py (superseded by
+# train_stable_dqn.py — kept configurable for comparison/reproducibility).
 # ---------------------------------------------------------------------------
-legacy_dqn_training:
+dqn_training:
   replay_buffer_csv: replay_buffer_multi_policy.csv
-  model_output_path: dqn_policy_net.pth
+  model_path: dqn_policy_net.pth
   training_log_csv: training_log.csv
 
-  state_dim: 34                # fixed column-offset assumption; see dqn_training.py docstring
-  num_actions: 6                # cache_length (5) + 1 "no eviction" action
+  num_actions: 6               # cache_length (5) + 1 "no eviction" action; state_dim is inferred
+                                # from the replay buffer CSV itself (see generate_offline_data_from_cache),
+                                # not hardcoded — canonically 38 (dqn_model.STATE_DIM)
   batch_size: 128
   num_epochs: 50
   learning_rate: 5.0e-4
-  discount_factor: 0.98         # gamma
+  gamma: 0.98                  # discount factor
   target_update_frequency_epochs: 5   # hard sync (full state_dict copy), not soft
   checkpoint_every_epochs: 10
+
+  epsilon_schedule: null       # N/A — offline RL, no online exploration policy (see train_stable_dqn note above)
 
   network:
     hidden_dim: 128
 
 # ---------------------------------------------------------------------------
-# Cache / executor simulator (executor.py, evaluate_policies.py)
+# Cache / executor simulator (executor.py, evaluate_policies.py) — not yet
+# wired in (both scripts still hardcode these); documented here for
+# reference and as a follow-up wiring target.
 # ---------------------------------------------------------------------------
 simulator:
-  max_cache_size_mb: 512         # Executor default; evaluate_policies.py overrides to 10, __main__ block to 20
+  max_cache_size_mb: 512         # Executor default; evaluate_policies.py overrides to 10, executor.py's __main__ to 20
   cache_slots_k: 5               # partitions pre-loaded/held in cache; drives the RL action-space size (k + 1)
   default_eviction_policy: LRU
   rl_model_path: dqn_policy_net.pth   # default checkpoint Executor loads for the "RL" policy
