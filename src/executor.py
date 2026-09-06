@@ -487,7 +487,7 @@ class Executor:
         NOTE: this reward is purely hit-ratio-based (no recomputation
         cost is used) — it does not match the "cost-aware" reward the
         README describes for the DDQN training pipeline
-        (`new_run/train_stable_dqn.py` consumes a `replay_buffer_cost_aware.csv`
+        (`scripts/train_stable_dqn.py` consumes a `replay_buffer_cost_aware.csv`
         that this function does not produce). See review summary.
 
         Method: computes a `baseline` hit ratio over `future_queries`

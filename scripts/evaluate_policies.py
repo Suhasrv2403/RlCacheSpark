@@ -21,20 +21,30 @@ For each (workload, policy) pair, tracks:
 Inputs: none from disk (workloads are synthetic, generated in-process);
     the RL policy additionally loads a trained checkpoint (default
     "dqn_policy_net.pth") via `Executor.load_rl_model`.
-Outputs: policy_evaluation_summary.csv (one row per workload x policy)
-    and policy_timeline_data.csv (one row per workload x policy x query),
-    both written to the current working directory by `run_evaluation()`.
-    These columns are what `plot_results.py` expects to read — the two
-    scripts were previously out of sync (see git history / review
-    summary); keep them consistent if you change either.
+Outputs: results/policy_evaluation_summary.csv (one row per workload x
+    policy) and results/policy_timeline_data.csv (one row per workload x
+    policy x query), written by `run_evaluation()` under the repo-root
+    results/ directory (resolved via this file's own location, so it
+    works regardless of the invocation's current directory). These
+    columns are what `plot_results.py` expects to read — the two scripts
+    were previously out of sync (see git history / review summary); keep
+    them consistent if you change either.
 """
 
 import time
+from pathlib import Path
 from typing import Any, Optional
 
 import pandas as pd
 import numpy as np
-from executor import Executor  # import your executor class with RL integrated
+
+# executor.py lives at src/executor.py (repo_root/src); add it to
+# sys.path so this script works whether run from scripts/ or repo root.
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+from executor import Executor  # noqa: E402  (import your executor class with RL integrated)
+
+RESULTS_DIR = Path(__file__).resolve().parent.parent / "results"
 
 
 # -----------------------------
@@ -245,8 +255,11 @@ def run_evaluation() -> None:
     summary_df = pd.DataFrame(all_metrics)
     timeline_df = pd.DataFrame(all_timeline_data)
 
-    summary_df.to_csv("policy_evaluation_summary.csv", index=False)
-    timeline_df.to_csv("policy_timeline_data.csv", index=False)
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    summary_path = RESULTS_DIR / "policy_evaluation_summary.csv"
+    timeline_path = RESULTS_DIR / "policy_timeline_data.csv"
+    summary_df.to_csv(summary_path, index=False)
+    timeline_df.to_csv(timeline_path, index=False)
 
     print("\n=== Final Policy Comparison ===")
     print(summary_df)
@@ -255,8 +268,8 @@ def run_evaluation() -> None:
     print(timeline_df.head())
 
     print("\nResults saved to:")
-    print(" - policy_evaluation_summary.csv (overall summary)")
-    print(" - policy_timeline_data.csv (per-query timeline) ✅")
+    print(f" - {summary_path} (overall summary)")
+    print(f" - {timeline_path} (per-query timeline) ✅")
 
 
 # -----------------------------

@@ -38,9 +38,8 @@ training_log.csv
 !/docs/**/*.svg
 evaluation_plots/
 evaluation_plots_poster/
-results/
-new_run/results/
 
-# Version only the training script from experiments; weights stay local
-new_run/*
-!new_run/train_stable_dqn.py
+# scripts/train_stable_dqn.py's own local plot output dir (distinct from
+# the tracked top-level results/ directory, which holds the CSVs
+# committed by evaluate_policies.py / plot_results.py)
+scripts/results/

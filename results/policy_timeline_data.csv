@@ -1,21 +1,21 @@
 Workload,Query_Index,Policy,Query,Cache_Hit_Ratio,Query_Latency_ms
-Trained_Workload,1,LRU,"{'order_amount': ('>', 900)}",50.0,0.06
-Trained_Workload,2,LRU,"{'product_category': ('=', 'Toys')}",42.86,0.04
+Trained_Workload,1,LRU,"{'order_amount': ('>', 900)}",50.0,0.04
+Trained_Workload,2,LRU,"{'product_category': ('=', 'Toys')}",42.86,0.03
 Trained_Workload,3,LRU,"{'customer_id': ('>', 4500)}",25.0,0.03
 Trained_Workload,4,LRU,"{'order_date': ('>=', Timestamp('2025-12-01 00:00:00'))}",17.65,0.08
 Trained_Workload,5,LRU,"{'product_category': ('=', 'Electronics')}",13.95,0.03
 Trained_Workload,6,LRU,"{'product_category': ('=', 'Books')}",12.0,0.02
 Trained_Workload,7,LRU,"{'order_amount': ('<', 50)}",10.0,0.03
-Trained_Workload,8,LRU,"{'customer_id': ('<', 2000)}",8.57,0.02
+Trained_Workload,8,LRU,"{'customer_id': ('<', 2000)}",8.57,0.03
 Trained_Workload,9,LRU,"{'product_category': ('=', 'Clothing')}",7.59,0.03
-Trained_Workload,10,LRU,"{'order_amount': ('>', 500)}",6.74,0.03
+Trained_Workload,10,LRU,"{'order_amount': ('>', 500)}",6.74,0.02
 Trained_Workload,1,LFU,"{'order_amount': ('>', 900)}",50.0,0.03
 Trained_Workload,2,LFU,"{'product_category': ('=', 'Toys')}",42.86,0.02
 Trained_Workload,3,LFU,"{'customer_id': ('>', 4500)}",33.33,0.02
 Trained_Workload,4,LFU,"{'order_date': ('>=', Timestamp('2025-12-01 00:00:00'))}",23.53,0.07
 Trained_Workload,5,LFU,"{'product_category': ('=', 'Electronics')}",23.26,0.02
 Trained_Workload,6,LFU,"{'product_category': ('=', 'Books')}",22.0,0.02
-Trained_Workload,7,LFU,"{'order_amount': ('<', 50)}",20.0,0.07
+Trained_Workload,7,LFU,"{'order_amount': ('<', 50)}",20.0,0.06
 Trained_Workload,8,LFU,"{'customer_id': ('<', 2000)}",18.57,0.02
 Trained_Workload,9,LFU,"{'product_category': ('=', 'Clothing')}",17.72,0.02
 Trained_Workload,10,LFU,"{'order_amount': ('>', 500)}",16.85,0.02
@@ -29,7 +29,7 @@ Trained_Workload,7,FIFO,"{'order_amount': ('<', 50)}",10.0,0.02
 Trained_Workload,8,FIFO,"{'customer_id': ('<', 2000)}",8.57,0.02
 Trained_Workload,9,FIFO,"{'product_category': ('=', 'Clothing')}",7.59,0.02
 Trained_Workload,10,FIFO,"{'order_amount': ('>', 500)}",6.74,0.02
-Trained_Workload,1,RANDOM,"{'order_amount': ('>', 900)}",50.0,0.06
+Trained_Workload,1,RANDOM,"{'order_amount': ('>', 900)}",50.0,0.07
 Trained_Workload,2,RANDOM,"{'product_category': ('=', 'Toys')}",35.71,0.08
 Trained_Workload,3,RANDOM,"{'customer_id': ('>', 4500)}",33.33,0.05
 Trained_Workload,4,RANDOM,"{'order_date': ('>=', Timestamp('2025-12-01 00:00:00'))}",32.35,0.1
@@ -49,16 +49,16 @@ Trained_Workload,7,RL,"{'order_amount': ('<', 50)}",31.67,0.05
 Trained_Workload,8,RL,"{'customer_id': ('<', 2000)}",30.0,0.05
 Trained_Workload,9,RL,"{'product_category': ('=', 'Clothing')}",26.58,0.06
 Trained_Workload,10,RL,"{'order_amount': ('>', 500)}",26.97,0.05
-Moving_Workload,1,LRU,"{'order_date': ('>=', Timestamp('2025-01-01 00:00:00'))}",50.0,0.08
-Moving_Workload,2,LRU,"{'order_date': ('>=', Timestamp('2025-01-31 00:00:00'))}",25.0,0.07
-Moving_Workload,3,LRU,"{'order_date': ('>=', Timestamp('2025-03-02 00:00:00'))}",16.67,0.07
-Moving_Workload,4,LRU,"{'order_date': ('>=', Timestamp('2025-04-01 00:00:00'))}",12.5,0.07
+Moving_Workload,1,LRU,"{'order_date': ('>=', Timestamp('2025-01-01 00:00:00'))}",50.0,0.13
+Moving_Workload,2,LRU,"{'order_date': ('>=', Timestamp('2025-01-31 00:00:00'))}",25.0,0.08
+Moving_Workload,3,LRU,"{'order_date': ('>=', Timestamp('2025-03-02 00:00:00'))}",16.67,0.08
+Moving_Workload,4,LRU,"{'order_date': ('>=', Timestamp('2025-04-01 00:00:00'))}",12.5,0.08
 Moving_Workload,5,LRU,"{'order_date': ('>=', Timestamp('2025-05-01 00:00:00'))}",10.0,0.07
 Moving_Workload,6,LRU,"{'order_date': ('>=', Timestamp('2025-05-31 00:00:00'))}",8.33,0.07
 Moving_Workload,7,LRU,"{'order_date': ('>=', Timestamp('2025-06-30 00:00:00'))}",7.14,0.07
-Moving_Workload,8,LRU,"{'order_date': ('>=', Timestamp('2025-07-30 00:00:00'))}",6.25,0.11
+Moving_Workload,8,LRU,"{'order_date': ('>=', Timestamp('2025-07-30 00:00:00'))}",6.25,0.1
 Moving_Workload,9,LRU,"{'order_date': ('>=', Timestamp('2025-08-29 00:00:00'))}",5.56,0.07
-Moving_Workload,10,LRU,"{'order_date': ('>=', Timestamp('2025-09-28 00:00:00'))}",5.0,0.07
+Moving_Workload,10,LRU,"{'order_date': ('>=', Timestamp('2025-09-28 00:00:00'))}",5.0,0.08
 Moving_Workload,11,LRU,"{'product_category': ('=', 'Electronics')}",4.59,0.03
 Moving_Workload,12,LRU,"{'product_category': ('=', 'Clothing')}",4.24,0.03
 Moving_Workload,13,LRU,"{'product_category': ('=', 'Books')}",4.0,0.02
@@ -66,15 +66,15 @@ Moving_Workload,14,LRU,"{'product_category': ('=', 'Toys')}",4.65,0.01
 Moving_Workload,15,LRU,"{'product_category': ('=', 'Electronics')}",5.8,0.02
 Moving_Workload,16,LRU,"{'product_category': ('=', 'Clothing')}",5.44,0.03
 Moving_Workload,17,LRU,"{'product_category': ('=', 'Books')}",5.19,0.02
-Moving_Workload,18,LRU,"{'product_category': ('=', 'Toys')}",5.7,0.02
-Moving_Workload,19,LRU,"{'product_category': ('=', 'Electronics')}",6.59,0.02
+Moving_Workload,18,LRU,"{'product_category': ('=', 'Toys')}",5.7,0.01
+Moving_Workload,19,LRU,"{'product_category': ('=', 'Electronics')}",6.59,0.03
 Moving_Workload,20,LRU,"{'product_category': ('=', 'Clothing')}",6.25,0.03
 Moving_Workload,1,LFU,"{'order_date': ('>=', Timestamp('2025-01-01 00:00:00'))}",50.0,0.07
 Moving_Workload,2,LFU,"{'order_date': ('>=', Timestamp('2025-01-31 00:00:00'))}",25.0,0.07
-Moving_Workload,3,LFU,"{'order_date': ('>=', Timestamp('2025-03-02 00:00:00'))}",16.67,0.07
-Moving_Workload,4,LFU,"{'order_date': ('>=', Timestamp('2025-04-01 00:00:00'))}",12.5,0.1
+Moving_Workload,3,LFU,"{'order_date': ('>=', Timestamp('2025-03-02 00:00:00'))}",16.67,0.06
+Moving_Workload,4,LFU,"{'order_date': ('>=', Timestamp('2025-04-01 00:00:00'))}",12.5,0.09
 Moving_Workload,5,LFU,"{'order_date': ('>=', Timestamp('2025-05-01 00:00:00'))}",10.0,0.06
-Moving_Workload,6,LFU,"{'order_date': ('>=', Timestamp('2025-05-31 00:00:00'))}",8.33,0.07
+Moving_Workload,6,LFU,"{'order_date': ('>=', Timestamp('2025-05-31 00:00:00'))}",8.33,0.06
 Moving_Workload,7,LFU,"{'order_date': ('>=', Timestamp('2025-06-30 00:00:00'))}",7.14,0.06
 Moving_Workload,8,LFU,"{'order_date': ('>=', Timestamp('2025-07-30 00:00:00'))}",6.25,0.06
 Moving_Workload,9,LFU,"{'order_date': ('>=', Timestamp('2025-08-29 00:00:00'))}",5.56,0.06
@@ -89,17 +89,17 @@ Moving_Workload,17,LFU,"{'product_category': ('=', 'Books')}",6.49,0.02
 Moving_Workload,18,LFU,"{'product_category': ('=', 'Toys')}",6.96,0.01
 Moving_Workload,19,LFU,"{'product_category': ('=', 'Electronics')}",7.78,0.02
 Moving_Workload,20,LFU,"{'product_category': ('=', 'Clothing')}",7.95,0.02
-Moving_Workload,1,FIFO,"{'order_date': ('>=', Timestamp('2025-01-01 00:00:00'))}",50.0,0.07
-Moving_Workload,2,FIFO,"{'order_date': ('>=', Timestamp('2025-01-31 00:00:00'))}",25.0,0.06
-Moving_Workload,3,FIFO,"{'order_date': ('>=', Timestamp('2025-03-02 00:00:00'))}",16.67,0.06
-Moving_Workload,4,FIFO,"{'order_date': ('>=', Timestamp('2025-04-01 00:00:00'))}",12.5,0.06
-Moving_Workload,5,FIFO,"{'order_date': ('>=', Timestamp('2025-05-01 00:00:00'))}",10.0,0.06
-Moving_Workload,6,FIFO,"{'order_date': ('>=', Timestamp('2025-05-31 00:00:00'))}",8.33,0.06
-Moving_Workload,7,FIFO,"{'order_date': ('>=', Timestamp('2025-06-30 00:00:00'))}",7.14,0.06
-Moving_Workload,8,FIFO,"{'order_date': ('>=', Timestamp('2025-07-30 00:00:00'))}",6.25,0.06
-Moving_Workload,9,FIFO,"{'order_date': ('>=', Timestamp('2025-08-29 00:00:00'))}",5.56,0.06
-Moving_Workload,10,FIFO,"{'order_date': ('>=', Timestamp('2025-09-28 00:00:00'))}",5.0,0.06
-Moving_Workload,11,FIFO,"{'product_category': ('=', 'Electronics')}",4.59,0.02
+Moving_Workload,1,FIFO,"{'order_date': ('>=', Timestamp('2025-01-01 00:00:00'))}",50.0,0.08
+Moving_Workload,2,FIFO,"{'order_date': ('>=', Timestamp('2025-01-31 00:00:00'))}",25.0,0.07
+Moving_Workload,3,FIFO,"{'order_date': ('>=', Timestamp('2025-03-02 00:00:00'))}",16.67,0.07
+Moving_Workload,4,FIFO,"{'order_date': ('>=', Timestamp('2025-04-01 00:00:00'))}",12.5,0.07
+Moving_Workload,5,FIFO,"{'order_date': ('>=', Timestamp('2025-05-01 00:00:00'))}",10.0,0.07
+Moving_Workload,6,FIFO,"{'order_date': ('>=', Timestamp('2025-05-31 00:00:00'))}",8.33,0.07
+Moving_Workload,7,FIFO,"{'order_date': ('>=', Timestamp('2025-06-30 00:00:00'))}",7.14,0.07
+Moving_Workload,8,FIFO,"{'order_date': ('>=', Timestamp('2025-07-30 00:00:00'))}",6.25,0.07
+Moving_Workload,9,FIFO,"{'order_date': ('>=', Timestamp('2025-08-29 00:00:00'))}",5.56,0.07
+Moving_Workload,10,FIFO,"{'order_date': ('>=', Timestamp('2025-09-28 00:00:00'))}",5.0,0.07
+Moving_Workload,11,FIFO,"{'product_category': ('=', 'Electronics')}",4.59,0.03
 Moving_Workload,12,FIFO,"{'product_category': ('=', 'Clothing')}",4.24,0.02
 Moving_Workload,13,FIFO,"{'product_category': ('=', 'Books')}",4.0,0.02
 Moving_Workload,14,FIFO,"{'product_category': ('=', 'Toys')}",4.65,0.01
@@ -109,64 +109,64 @@ Moving_Workload,17,FIFO,"{'product_category': ('=', 'Books')}",5.19,0.02
 Moving_Workload,18,FIFO,"{'product_category': ('=', 'Toys')}",5.7,0.01
 Moving_Workload,19,FIFO,"{'product_category': ('=', 'Electronics')}",6.59,0.02
 Moving_Workload,20,FIFO,"{'product_category': ('=', 'Clothing')}",6.25,0.02
-Moving_Workload,1,RANDOM,"{'order_date': ('>=', Timestamp('2025-01-01 00:00:00'))}",50.0,0.11
+Moving_Workload,1,RANDOM,"{'order_date': ('>=', Timestamp('2025-01-01 00:00:00'))}",50.0,0.12
 Moving_Workload,2,RANDOM,"{'order_date': ('>=', Timestamp('2025-01-31 00:00:00'))}",30.0,0.11
 Moving_Workload,3,RANDOM,"{'order_date': ('>=', Timestamp('2025-03-02 00:00:00'))}",26.67,0.11
-Moving_Workload,4,RANDOM,"{'order_date': ('>=', Timestamp('2025-04-01 00:00:00'))}",25.0,0.1
+Moving_Workload,4,RANDOM,"{'order_date': ('>=', Timestamp('2025-04-01 00:00:00'))}",25.0,0.11
 Moving_Workload,5,RANDOM,"{'order_date': ('>=', Timestamp('2025-05-01 00:00:00'))}",26.0,0.1
 Moving_Workload,6,RANDOM,"{'order_date': ('>=', Timestamp('2025-05-31 00:00:00'))}",28.33,0.09
 Moving_Workload,7,RANDOM,"{'order_date': ('>=', Timestamp('2025-06-30 00:00:00'))}",27.14,0.1
-Moving_Workload,8,RANDOM,"{'order_date': ('>=', Timestamp('2025-07-30 00:00:00'))}",27.5,0.09
-Moving_Workload,9,RANDOM,"{'order_date': ('>=', Timestamp('2025-08-29 00:00:00'))}",27.78,0.09
-Moving_Workload,10,RANDOM,"{'order_date': ('>=', Timestamp('2025-09-28 00:00:00'))}",26.0,0.1
+Moving_Workload,8,RANDOM,"{'order_date': ('>=', Timestamp('2025-07-30 00:00:00'))}",27.5,0.1
+Moving_Workload,9,RANDOM,"{'order_date': ('>=', Timestamp('2025-08-29 00:00:00'))}",27.78,0.1
+Moving_Workload,10,RANDOM,"{'order_date': ('>=', Timestamp('2025-09-28 00:00:00'))}",26.0,0.11
 Moving_Workload,11,RANDOM,"{'product_category': ('=', 'Electronics')}",26.61,0.05
-Moving_Workload,12,RANDOM,"{'product_category': ('=', 'Clothing')}",27.12,0.09
+Moving_Workload,12,RANDOM,"{'product_category': ('=', 'Clothing')}",27.12,0.08
 Moving_Workload,13,RANDOM,"{'product_category': ('=', 'Books')}",27.2,0.04
 Moving_Workload,14,RANDOM,"{'product_category': ('=', 'Toys')}",27.13,0.03
 Moving_Workload,15,RANDOM,"{'product_category': ('=', 'Electronics')}",27.54,0.05
 Moving_Workload,16,RANDOM,"{'product_category': ('=', 'Clothing')}",26.53,0.06
-Moving_Workload,17,RANDOM,"{'product_category': ('=', 'Books')}",27.27,0.03
+Moving_Workload,17,RANDOM,"{'product_category': ('=', 'Books')}",27.27,0.04
 Moving_Workload,18,RANDOM,"{'product_category': ('=', 'Toys')}",27.22,0.03
 Moving_Workload,19,RANDOM,"{'product_category': ('=', 'Electronics')}",28.14,0.04
-Moving_Workload,20,RANDOM,"{'product_category': ('=', 'Clothing')}",27.27,0.06
-Moving_Workload,1,RL,"{'order_date': ('>=', Timestamp('2025-01-01 00:00:00'))}",50.0,0.1
-Moving_Workload,2,RL,"{'order_date': ('>=', Timestamp('2025-01-31 00:00:00'))}",35.0,0.1
-Moving_Workload,3,RL,"{'order_date': ('>=', Timestamp('2025-03-02 00:00:00'))}",30.0,0.1
-Moving_Workload,4,RL,"{'order_date': ('>=', Timestamp('2025-04-01 00:00:00'))}",30.0,0.09
-Moving_Workload,5,RL,"{'order_date': ('>=', Timestamp('2025-05-01 00:00:00'))}",26.0,0.1
-Moving_Workload,6,RL,"{'order_date': ('>=', Timestamp('2025-05-31 00:00:00'))}",23.33,0.13
+Moving_Workload,20,RANDOM,"{'product_category': ('=', 'Clothing')}",27.27,0.05
+Moving_Workload,1,RL,"{'order_date': ('>=', Timestamp('2025-01-01 00:00:00'))}",50.0,0.13
+Moving_Workload,2,RL,"{'order_date': ('>=', Timestamp('2025-01-31 00:00:00'))}",35.0,0.12
+Moving_Workload,3,RL,"{'order_date': ('>=', Timestamp('2025-03-02 00:00:00'))}",30.0,0.11
+Moving_Workload,4,RL,"{'order_date': ('>=', Timestamp('2025-04-01 00:00:00'))}",30.0,0.1
+Moving_Workload,5,RL,"{'order_date': ('>=', Timestamp('2025-05-01 00:00:00'))}",26.0,0.11
+Moving_Workload,6,RL,"{'order_date': ('>=', Timestamp('2025-05-31 00:00:00'))}",23.33,0.15
 Moving_Workload,7,RL,"{'order_date': ('>=', Timestamp('2025-06-30 00:00:00'))}",25.71,0.09
-Moving_Workload,8,RL,"{'order_date': ('>=', Timestamp('2025-07-30 00:00:00'))}",25.0,0.1
-Moving_Workload,9,RL,"{'order_date': ('>=', Timestamp('2025-08-29 00:00:00'))}",24.44,0.09
-Moving_Workload,10,RL,"{'order_date': ('>=', Timestamp('2025-09-28 00:00:00'))}",24.0,0.09
-Moving_Workload,11,RL,"{'product_category': ('=', 'Electronics')}",24.77,0.05
-Moving_Workload,12,RL,"{'product_category': ('=', 'Clothing')}",23.73,0.05
-Moving_Workload,13,RL,"{'product_category': ('=', 'Books')}",24.0,0.04
+Moving_Workload,8,RL,"{'order_date': ('>=', Timestamp('2025-07-30 00:00:00'))}",25.0,0.09
+Moving_Workload,9,RL,"{'order_date': ('>=', Timestamp('2025-08-29 00:00:00'))}",24.44,0.1
+Moving_Workload,10,RL,"{'order_date': ('>=', Timestamp('2025-09-28 00:00:00'))}",24.0,0.13
+Moving_Workload,11,RL,"{'product_category': ('=', 'Electronics')}",24.77,0.06
+Moving_Workload,12,RL,"{'product_category': ('=', 'Clothing')}",23.73,0.06
+Moving_Workload,13,RL,"{'product_category': ('=', 'Books')}",24.0,0.05
 Moving_Workload,14,RL,"{'product_category': ('=', 'Toys')}",24.03,0.03
 Moving_Workload,15,RL,"{'product_category': ('=', 'Electronics')}",23.91,0.05
 Moving_Workload,16,RL,"{'product_category': ('=', 'Clothing')}",23.81,0.05
 Moving_Workload,17,RL,"{'product_category': ('=', 'Books')}",23.38,0.06
 Moving_Workload,18,RL,"{'product_category': ('=', 'Toys')}",23.42,0.03
 Moving_Workload,19,RL,"{'product_category': ('=', 'Electronics')}",23.95,0.05
-Moving_Workload,20,RL,"{'product_category': ('=', 'Clothing')}",23.3,0.05
+Moving_Workload,20,RL,"{'product_category': ('=', 'Clothing')}",23.3,0.06
 Unseen_Workload,1,LRU,"{'product_category': ('=', 'Books'), 'order_amount': ('>', 800)}",57.14,0.03
 Unseen_Workload,2,LRU,"{'product_category': ('=', 'Toys'), 'customer_id': ('<', 500)}",45.45,0.02
 Unseen_Workload,3,LRU,"{'order_amount': ('>', 970)}",23.81,0.03
 Unseen_Workload,4,LRU,"{'customer_id': ('>', 4950)}",16.13,0.03
 Unseen_Workload,5,LRU,"{'product_category': ('=', 'Electronics'), 'order_amount': ('<', 20)}",12.5,0.03
-Unseen_Workload,6,LRU,"{'order_date': ('>=', Timestamp('2025-12-20 00:00:00'))}",10.0,0.07
+Unseen_Workload,6,LRU,"{'order_date': ('>=', Timestamp('2025-12-20 00:00:00'))}",10.0,0.08
 Unseen_Workload,7,LRU,"{'product_category': ('=', 'Clothing'), 'customer_id': ('>', 4800)}",8.47,0.03
 Unseen_Workload,8,LRU,"{'order_amount': ('>', 990)}",7.25,0.03
 Unseen_Workload,9,LRU,"{'product_category': ('=', 'Books'), 'customer_id': ('<', 100)}",6.58,0.02
 Unseen_Workload,10,LRU,"{'customer_id': ('<', 50)}",5.81,0.03
 Unseen_Workload,1,LFU,"{'product_category': ('=', 'Books'), 'order_amount': ('>', 800)}",57.14,0.07
 Unseen_Workload,2,LFU,"{'product_category': ('=', 'Toys'), 'customer_id': ('<', 500)}",45.45,0.02
-Unseen_Workload,3,LFU,"{'order_amount': ('>', 970)}",28.57,0.02
+Unseen_Workload,3,LFU,"{'order_amount': ('>', 970)}",28.57,0.03
 Unseen_Workload,4,LFU,"{'customer_id': ('>', 4950)}",22.58,0.02
-Unseen_Workload,5,LFU,"{'product_category': ('=', 'Electronics'), 'order_amount': ('<', 20)}",20.0,0.02
+Unseen_Workload,5,LFU,"{'product_category': ('=', 'Electronics'), 'order_amount': ('<', 20)}",20.0,0.03
 Unseen_Workload,6,LFU,"{'order_date': ('>=', Timestamp('2025-12-20 00:00:00'))}",18.0,0.07
 Unseen_Workload,7,LFU,"{'product_category': ('=', 'Clothing'), 'customer_id': ('>', 4800)}",16.95,0.03
-Unseen_Workload,8,LFU,"{'order_amount': ('>', 990)}",15.94,0.02
+Unseen_Workload,8,LFU,"{'order_amount': ('>', 990)}",15.94,0.03
 Unseen_Workload,9,LFU,"{'product_category': ('=', 'Books'), 'customer_id': ('<', 100)}",15.79,0.02
 Unseen_Workload,10,LFU,"{'customer_id': ('<', 50)}",15.12,0.02
 Unseen_Workload,1,FIFO,"{'product_category': ('=', 'Books'), 'order_amount': ('>', 800)}",57.14,0.03
@@ -175,11 +175,11 @@ Unseen_Workload,3,FIFO,"{'order_amount': ('>', 970)}",23.81,0.02
 Unseen_Workload,4,FIFO,"{'customer_id': ('>', 4950)}",16.13,0.02
 Unseen_Workload,5,FIFO,"{'product_category': ('=', 'Electronics'), 'order_amount': ('<', 20)}",12.5,0.02
 Unseen_Workload,6,FIFO,"{'order_date': ('>=', Timestamp('2025-12-20 00:00:00'))}",10.0,0.07
-Unseen_Workload,7,FIFO,"{'product_category': ('=', 'Clothing'), 'customer_id': ('>', 4800)}",8.47,0.06
+Unseen_Workload,7,FIFO,"{'product_category': ('=', 'Clothing'), 'customer_id': ('>', 4800)}",8.47,0.05
 Unseen_Workload,8,FIFO,"{'order_amount': ('>', 990)}",7.25,0.02
 Unseen_Workload,9,FIFO,"{'product_category': ('=', 'Books'), 'customer_id': ('<', 100)}",6.58,0.02
 Unseen_Workload,10,FIFO,"{'customer_id': ('<', 50)}",5.81,0.02
-Unseen_Workload,1,RANDOM,"{'product_category': ('=', 'Books'), 'order_amount': ('>', 800)}",57.14,0.05
+Unseen_Workload,1,RANDOM,"{'product_category': ('=', 'Books'), 'order_amount': ('>', 800)}",57.14,0.06
 Unseen_Workload,2,RANDOM,"{'product_category': ('=', 'Toys'), 'customer_id': ('<', 500)}",54.55,0.02
 Unseen_Workload,3,RANDOM,"{'order_amount': ('>', 970)}",38.1,0.06
 Unseen_Workload,4,RANDOM,"{'customer_id': ('>', 4950)}",35.48,0.05
@@ -188,11 +188,11 @@ Unseen_Workload,6,RANDOM,"{'order_date': ('>=', Timestamp('2025-12-20 00:00:00')
 Unseen_Workload,7,RANDOM,"{'product_category': ('=', 'Clothing'), 'customer_id': ('>', 4800)}",28.81,0.06
 Unseen_Workload,8,RANDOM,"{'order_amount': ('>', 990)}",28.99,0.05
 Unseen_Workload,9,RANDOM,"{'product_category': ('=', 'Books'), 'customer_id': ('<', 100)}",30.26,0.03
-Unseen_Workload,10,RANDOM,"{'customer_id': ('<', 50)}",30.23,0.05
+Unseen_Workload,10,RANDOM,"{'customer_id': ('<', 50)}",30.23,0.06
 Unseen_Workload,1,RL,"{'product_category': ('=', 'Books'), 'order_amount': ('>', 800)}",57.14,0.05
 Unseen_Workload,2,RL,"{'product_category': ('=', 'Toys'), 'customer_id': ('<', 500)}",45.45,0.03
 Unseen_Workload,3,RL,"{'order_amount': ('>', 970)}",38.1,0.05
-Unseen_Workload,4,RL,"{'customer_id': ('>', 4950)}",35.48,0.08
+Unseen_Workload,4,RL,"{'customer_id': ('>', 4950)}",35.48,0.07
 Unseen_Workload,5,RL,"{'product_category': ('=', 'Electronics'), 'order_amount': ('<', 20)}",32.5,0.05
 Unseen_Workload,6,RL,"{'order_date': ('>=', Timestamp('2025-12-20 00:00:00'))}",28.0,0.11
 Unseen_Workload,7,RL,"{'product_category': ('=', 'Clothing'), 'customer_id': ('>', 4800)}",25.42,0.06

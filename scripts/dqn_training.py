@@ -9,7 +9,7 @@ Offline DQN Training with Model Reuse, Checkpoints, and Logging
 NOTE: This is the original (vanilla) DQN trainer — it uses a plain
 single-network DQN target (`max_next_q` from the same target net) rather
 than Double DQN, and has no Huber loss / soft target updates / state
-normalization. `new_run/train_stable_dqn.py` is the newer, stabilized
+normalization. `scripts/train_stable_dqn.py` is the newer, stabilized
 DDQN trainer described in the README and should be treated as the
 canonical training script; this file appears to be superseded by it and
 is a candidate for removal or archival (see review summary). It now
@@ -32,6 +32,9 @@ below if the file or a given key is missing, so this still runs with
 zero args.
 """
 
+import sys
+from pathlib import Path
+
 import torch
 import torch.optim as optim
 import torch.nn.functional as F
@@ -43,7 +46,10 @@ import os
 import csv
 from math import ceil
 
-from dqn_model import DQN, STATE_DIM, NUM_ACTIONS, load_config
+# dqn_model.py lives at src/dqn_model.py (repo_root/src); add it to
+# sys.path so this script works whether run from scripts/ or repo root.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+from dqn_model import DQN, STATE_DIM, NUM_ACTIONS, load_config  # noqa: E402
 
 _FULL_CONFIG = load_config()
 _CONFIG = _FULL_CONFIG.get("dqn_training", {})
@@ -105,7 +111,7 @@ def generate_offline_data_from_cache(log_file: str) -> list[tuple[np.ndarray, in
     (columns are N state features, 1 action, N next-state features, 1
     reward — optionally with a trailing "policy" label column, matching
     the layout `Executor.write_replay_buffer_simple` writes and the
-    convention `new_run/train_stable_dqn.py::extend_from_csv_stream`
+    convention `scripts/train_stable_dqn.py::extend_from_csv_stream`
     uses), rather than hardcoded to a fixed width. This is what lets
     this script train on the same 38-feature cost-aware buffers as the
     newer trainer without silently misaligning columns.
@@ -161,7 +167,7 @@ def train_offline_dqn() -> None:
     """Train (or resume) a vanilla offline DQN on a fixed replay buffer CSV.
 
     All hyperparameters below are hardcoded rather than sourced from a
-    config file or CLI args (unlike `new_run/train_stable_dqn.py`, which
+    config file or CLI args (unlike `scripts/train_stable_dqn.py`, which
     exposes them via argparse) — see review summary for a proposed
     config.yaml consolidating these values.
     """
@@ -226,7 +232,7 @@ def train_offline_dqn() -> None:
             # Target Q-values: vanilla DQN target (target_net both selects
             # and evaluates the best next action). This is the standard
             # DQN max-operator target, which is known to overestimate
-            # Q-values; new_run/train_stable_dqn.py addresses this with a
+            # Q-values; scripts/train_stable_dqn.py addresses this with a
             # Double DQN target (policy_net selects, target_net evaluates).
             with torch.no_grad():
                 max_next_q = target_net(next_states).max(1)[0]

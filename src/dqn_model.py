@@ -15,7 +15,7 @@ incompatible architectures and two incompatible state dimensions:
 
 This module is the single source of truth going forward: the 256-hidden
 LayerNorm architecture (more stable for offline training, per the
-DDQN/Huber/soft-update pipeline in new_run/train_stable_dqn.py) is kept
+DDQN/Huber/soft-update pipeline in scripts/train_stable_dqn.py) is kept
 as canonical, and the state vector is reconciled to genuinely produce 38
 features (see `executor.py::_get_cache_state_vector` for the completed
 8-feature global block: cache utilization and rolling eviction rate were
@@ -38,10 +38,10 @@ STATE_DIM = 38
 NUM_ACTIONS = 6
 HIDDEN_DIM = 256
 
-# config.yaml currently lives next to this file at the repo root. If the
-# planned folder restructure moves this module to src/dqn_model.py and
-# the config to configs/config.yaml, update this path accordingly.
-DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent / "config.yaml"
+# This module lives at src/dqn_model.py; config.yaml lives at
+# configs/config.yaml, i.e. repo_root/configs/config.yaml where
+# repo_root == this file's grandparent directory.
+DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent / "configs" / "config.yaml"
 
 
 def load_config(path: Path = DEFAULT_CONFIG_PATH) -> dict:
@@ -69,7 +69,7 @@ class DQN(nn.Module):
 
     Two hidden layers with a LayerNorm after the first (stabilizes
     offline training against noisy/unnormalized input scales — see
-    new_run/train_stable_dqn.py's training docstring for the full
+    scripts/train_stable_dqn.py's training docstring for the full
     stabilizer rationale).
     """
 

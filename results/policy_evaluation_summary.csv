@@ -1,0 +1,16 @@
+Workload_Set,Policy,Final_Cache_Hit_Ratio(%),Avg_Query_Latency(ms),P50_Latency(ms),P99_Latency(ms),Total_Runtime(s),Total_Evictions
+Trained_Workload,LRU,6.74,0.03,0.03,0.07,0.0003,83
+Trained_Workload,LFU,16.85,0.03,0.02,0.07,0.0003,74
+Trained_Workload,FIFO,6.74,0.03,0.02,0.06,0.0003,83
+Trained_Workload,RANDOM,25.84,0.06,0.05,0.1,0.0006,66
+Trained_Workload,RL,26.97,0.06,0.05,0.1,0.0006,65
+Moving_Workload,LRU,6.25,0.05,0.05,0.12,0.0011,165
+Moving_Workload,LFU,7.95,0.04,0.04,0.09,0.0009,162
+Moving_Workload,FIFO,6.25,0.05,0.06,0.08,0.0009,165
+Moving_Workload,RANDOM,27.27,0.08,0.09,0.12,0.0015,128
+Moving_Workload,RL,23.3,0.08,0.08,0.14,0.0016,135
+Unseen_Workload,LRU,5.81,0.03,0.03,0.07,0.0003,81
+Unseen_Workload,LFU,15.12,0.03,0.03,0.07,0.0003,73
+Unseen_Workload,FIFO,5.81,0.03,0.02,0.06,0.0003,81
+Unseen_Workload,RANDOM,30.23,0.05,0.05,0.1,0.0005,60
+Unseen_Workload,RL,20.93,0.06,0.05,0.1,0.0006,68

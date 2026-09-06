@@ -1,5 +1,5 @@
 # RLCache reproducibility config — loaded by dqn_training.py and
-# new_run/train_stable_dqn.py via dqn_model.load_config().
+# scripts/train_stable_dqn.py via dqn_model.load_config().
 #
 # Every value here is a *default*: both scripts fall back to these
 # hardcoded-turned-configurable numbers if a key is missing or this file
@@ -14,7 +14,7 @@
 seed: 42
 
 # ---------------------------------------------------------------------------
-# Canonical DDQN trainer: new_run/train_stable_dqn.py
+# Canonical DDQN trainer: scripts/train_stable_dqn.py
 # ---------------------------------------------------------------------------
 train_stable_dqn:
   replay_buffer_csv: ../replay_buffer_cost_aware.csv

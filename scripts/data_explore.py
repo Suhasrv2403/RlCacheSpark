@@ -8,17 +8,21 @@ reproducible pipeline: `plot_results.py` supersedes it with styled,
 multi-figure poster plots. Kept only for ad-hoc debugging; consider
 removing once `plot_results.py` covers all needed views.
 
-Inputs: policy_timeline_data.csv (columns: Policy, Query_Index,
-    Cache_Hit_Ratio, Query_Latency_ms)
-Outputs: my_plot_1.png (hit ratio + latency subplots), plus an interactive
-    matplotlib window.
+Inputs: results/policy_timeline_data.csv (columns: Policy, Query_Index,
+    Cache_Hit_Ratio, Query_Latency_ms), read from the repo-root results/
+    directory resolved via this file's own location.
+Outputs: my_plot_1.png (hit ratio + latency subplots) written to the
+    current working directory, plus an interactive matplotlib window.
 """
+
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 import pandas as pd
 
 # Load timeline data
-df = pd.read_csv("policy_timeline_data.csv")
+_TIMELINE_PATH = Path(__file__).resolve().parent.parent / "results" / "policy_timeline_data.csv"
+df = pd.read_csv(_TIMELINE_PATH)
 
 # Create figure
 fig, axes = plt.subplots(2, 1, figsize=(9, 7), sharex=True)

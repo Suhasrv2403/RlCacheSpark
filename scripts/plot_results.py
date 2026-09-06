@@ -13,12 +13,16 @@ SCHEMA (kept in sync with evaluate_policies.py): this script expects
 policies and emits exactly these columns — if you change either
 script's column names, update the other to match.
 
-Inputs: policy_evaluation_summary.csv, policy_timeline_data.csv
-    (both read from the current working directory).
+Inputs: results/policy_evaluation_summary.csv, results/policy_timeline_data.csv
+    (read from the repo-root results/ directory, resolved via this
+    file's own location so it works regardless of the invocation's
+    current directory).
 Outputs: evaluation_plots_poster/*.png (timeline plots per workload,
     latency bar charts, generalization-improvement chart, final hit
-    ratio chart).
+    ratio chart), written under the current working directory.
 """
+
+from pathlib import Path
 
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -27,8 +31,9 @@ import os
 
 # --- Configuration ---
 RESULTS_DIR = "evaluation_plots_poster"
-SUMMARY_FILE = "policy_evaluation_summary.csv"
-TIMELINE_FILE = "policy_timeline_data.csv"
+_REPO_RESULTS_DIR = Path(__file__).resolve().parent.parent / "results"
+SUMMARY_FILE = _REPO_RESULTS_DIR / "policy_evaluation_summary.csv"
+TIMELINE_FILE = _REPO_RESULTS_DIR / "policy_timeline_data.csv"
 POLICIES = ["LRU", "LFU", "FIFO", "RANDOM", "RL"]
 
 # --- Styling Constants for Poster ---

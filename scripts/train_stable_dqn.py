@@ -7,7 +7,7 @@ for the cache eviction problem with a focus on stability (DDQN, Huber Loss)
 and utilizing static state normalization.
 
 This is the canonical/current training script referenced by the README
-(as opposed to the top-level `dqn_training.py`, a vanilla-DQN precursor —
+(as opposed to `dqn_training.py`, a vanilla-DQN precursor —
 see that file's module docstring for the comparison). Both scripts now
 share one DQN architecture and state dimension via `dqn_model.py`
 (STATE_DIM=38); see that module's docstring for how the previous
@@ -48,12 +48,10 @@ import torch.nn as nn
 import torch.optim as optim
 from typing import Tuple, Optional
 
-# dqn_model.py currently lives at the repo root (one level up from this
-# new_run/ script); add it to sys.path so this script works whether it's
-# run from new_run/ or from the repo root. NOTE: once the planned folder
-# restructure lands (dqn_model.py -> src/dqn_model.py, this script ->
-# scripts/train_stable_dqn.py), this path needs updating to point at src/.
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+# dqn_model.py lives at src/dqn_model.py (repo_root/src), i.e. this
+# script's grandparent directory's src/ subfolder; add it to sys.path so
+# this script works whether it's run from scripts/ or from the repo root.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from dqn_model import DQN, load_config  # noqa: E402
 
 _FULL_CONFIG = load_config()
