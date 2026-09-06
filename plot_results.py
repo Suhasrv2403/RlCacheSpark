@@ -5,15 +5,13 @@ Reads `policy_evaluation_summary.csv` and `policy_timeline_data.csv` and
 produces styled, high-resolution (300 DPI) bar and line charts comparing
 LRU/LFU/FIFO/RANDOM/RL eviction policies.
 
-SCHEMA MISMATCH (flagged, not fixed): this script expects columns that
-the current `evaluate_policies.py` does not produce — specifically
-`Workload` (timeline) and `Workload_Set`, `Total_Runtime(s)`,
-`P99_Latency(ms)`, `P50_Latency(ms)` (summary). `evaluate_policies.py`
-currently writes only Policy/Final_Cache_Hit_Ratio(%)/
-Avg_Query_Latency(ms)/Total_Evictions (summary) and Query_Index/Policy/
-Query/Cache_Hit_Ratio/Query_Latency_ms (timeline), with no per-workload
-breakdown. Running this script against those CSVs as-is will raise a
-KeyError. See review summary for the reproducibility implications.
+SCHEMA (kept in sync with evaluate_policies.py): this script expects
+`Workload` (timeline) and `Workload_Set`, `Policy`, `Total_Runtime(s)`,
+`P99_Latency(ms)`, `P50_Latency(ms)`, `Final_Cache_Hit_Ratio(%)`
+(summary). `evaluate_policies.py` runs three workload scenarios
+(Trained_Workload, Moving_Workload, Unseen_Workload) across five
+policies and emits exactly these columns — if you change either
+script's column names, update the other to match.
 
 Inputs: policy_evaluation_summary.csv, policy_timeline_data.csv
     (both read from the current working directory).
