@@ -42,7 +42,6 @@ import pandas as pd
 import os
 import csv
 from math import ceil
-from typing import Optional
 
 from dqn_model import DQN, STATE_DIM, NUM_ACTIONS, load_config
 
@@ -168,12 +167,14 @@ def train_offline_dqn() -> None:
     """
     # 1️⃣ Hyperparameters (from config.yaml's `dqn_training` section,
     # falling back to these defaults if the file/key is missing)
-    num_actions = _CONFIG.get("num_actions", NUM_ACTIONS)  # cache_length (5) candidate evictions + 1 "no eviction" no-op
+    # num_actions: cache_length (5) candidate evictions + 1 "no eviction" no-op
+    num_actions = _CONFIG.get("num_actions", NUM_ACTIONS)
     gamma = _CONFIG.get("gamma", 0.98)  # discount factor for future reward
     batch_size = _CONFIG.get("batch_size", 128)
     lr = _CONFIG.get("learning_rate", 5e-4)
     num_epochs = _CONFIG.get("num_epochs", 50)
-    update_target_every = _CONFIG.get("target_update_frequency_epochs", 5)  # hard target-network sync period, in epochs (see soft updates in train_stable_dqn.py)
+    # hard target-network sync period, in epochs (see soft updates in train_stable_dqn.py)
+    update_target_every = _CONFIG.get("target_update_frequency_epochs", 5)
     model_path = _CONFIG.get("model_path", "dqn_policy_net.pth")
     log_path = _CONFIG.get("training_log_csv", "training_log.csv")
     replay_buffer_csv = _CONFIG.get("replay_buffer_csv", "replay_buffer_multi_policy.csv")

@@ -14,8 +14,17 @@ Outputs: none on disk — this module only builds in-memory metadata used
 """
 
 import pandas as pd
-import numpy as np
 from typing import Dict, List, Any
+
+# Recomputation-cost model (see Partition._estimate_recomputation_cost):
+# a deterministic stand-in for "how expensive would it be to recompute
+# this partition from source if it were evicted and later needed again",
+# per the README's cost-aware eviction framing. Real Spark recompute cost
+# depends on upstream lineage/shuffle cost, which this simulator doesn't
+# model; row/size-proportional cost is a simple, testable placeholder.
+ROW_RECOMPUTE_COST_MS = 0.01   # ms of simulated recompute cost per row
+MB_RECOMPUTE_COST_MS = 2.0     # ms of simulated recompute cost per MB in memory
+
 
 class Partition:
     """A single cached (or cacheable) chunk of a dataset, plus its metadata.
@@ -50,6 +59,7 @@ class Partition:
         self.partition_bounds = {}
         self._build_metadata()
         self._calculate_size()
+        self.recomputation_cost_ms = self._estimate_recomputation_cost()  # see module-level cost model comment
 
     def partition_stats(self, filters: Dict[str, Any]) -> Dict[str, Any]:
         """Compute a snapshot of this partition's cache-relevant stats for a query.
@@ -191,6 +201,22 @@ class Partition:
     def _calculate_size(self):
         """Calculate memory usage of this partition"""
         self.size_in_memory = self.data.memory_usage(deep=True).sum()
+
+    def _estimate_recomputation_cost(self) -> float:
+        """Estimate the simulated cost (in ms) of recomputing this partition from source.
+
+        Deterministic, row-count- and size-proportional (see the
+        ROW_RECOMPUTE_COST_MS / MB_RECOMPUTE_COST_MS module constants):
+        larger partitions cost more to recompute. This backs the
+        cost-aware eviction reward (`Executor.compute_cost_aware_reward`)
+        the README describes, as distinct from `Executor`'s
+        hit-ratio-based `_simulate_multi_query_reward`.
+
+        Returns:
+            Estimated recomputation cost in milliseconds; always > 0.
+        """
+        size_mb = self.size_in_memory / 1024 ** 2
+        return self.row_count * ROW_RECOMPUTE_COST_MS + size_mb * MB_RECOMPUTE_COST_MS
 
     def can_prune(self, filters: Dict[str, Any]) -> bool:
         """
@@ -367,48 +393,3 @@ class Partition:
                 f"{info['size_in_memory_bytes'] / 1024 / 1024:.2f} MB, "
                 f"{info['column_count']} columns, "
                 f"Accessed {info['access_count']} times")
-
-# DEAD CODE (flagged, not removed per review scope): the block below is a
-# commented-out manual smoke test for the Partition class, left over from
-# development. It has no automated test coverage backing it — consider
-# moving it into tests/test_dataset_processing.py as a real pytest test,
-# or deleting it if superseded.
-"""
-# --- Sample Test Code for Partition class ---
-
-# Create sample data
-data = pd.DataFrame({
-    "id": np.arange(1, 21),
-    "age": np.random.randint(18, 65, 20),
-    "salary": np.random.uniform(30000, 120000, 20).round(2),
-    "department": np.random.choice(["HR", "Engineering", "Finance", "Marketing"], 20),
-    "city": np.random.choice(["New York", "San Francisco", "Chicago", "Austin"], 20),
-    "active": np.random.choice([True, False], 20),
-    "notes": np.random.choice([
-        "Excellent performer", "Needs improvement", "Promoted recently",
-        "On probation", "Team player", "Works remotely"
-    ], 20)
-})
-
-# Create a partition
-partition = Partition(data, partition_id=1)
-
-# Print basic info
-print(partition)
-print("\nColumn stats for 'salary':")
-print(partition.get_column_stats("salary"))
-
-# Test pruning
-filters = {"age": (">", 60)}
-print("\nCan prune (age > 60)?", partition.can_prune(filters))
-
-# Test filtering
-filtered = partition.filter_rows(lambda df: df["salary"] > 80000)
-print("\nFiltered rows (salary > 80,000):")
-print(filtered.head())
-
-# Test projection
-projected = partition.project_columns(["id", "age", "salary"])
-print("\nProjected partition:")
-print(projected)
-"""

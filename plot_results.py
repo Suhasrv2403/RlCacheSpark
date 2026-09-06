@@ -21,7 +21,6 @@ Outputs: evaluation_plots_poster/*.png (timeline plots per workload,
 """
 
 import pandas as pd
-import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import os
@@ -88,7 +87,7 @@ def plot_hit_ratio_timeline_separated(df_timeline: pd.DataFrame) -> None:
     Args:
         df_timeline: Must contain columns Workload, Query_Index,
             Cache_Hit_Ratio, Policy (see module docstring for the
-            current schema mismatch with evaluate_policies.py's output).
+            full schema this expects from evaluate_policies.py's output).
     """
     print("Generating Hit Ratio Timeline Plots...")
 
@@ -213,16 +212,19 @@ def plot_generalization_summary(df_summary: pd.DataFrame) -> None:
 
     pivot_df = df_calc.pivot(index='Workload_Set', columns='Policy', values='Total_Runtime(s)')
 
-    if 'LRU' not in pivot_df.columns: return
+    if 'LRU' not in pivot_df.columns:
+        return
 
     improvement_df = pd.DataFrame()
     for policy in pivot_df.columns:
-        if policy == 'LRU': continue
+        if policy == 'LRU':
+            continue
         vals = ((pivot_df['LRU'] - pivot_df[policy]) / pivot_df['LRU']) * 100
         temp = pd.DataFrame({'Workload_Set': pivot_df.index, 'Policy': policy, 'Improvement': vals.values})
         improvement_df = pd.concat([improvement_df, temp])
 
-    if improvement_df.empty: return
+    if improvement_df.empty:
+        return
 
     improvement_df['Workload_Set'] = improvement_df['Workload_Set'].apply(format_workload_name)
 

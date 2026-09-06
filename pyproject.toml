@@ -1,0 +1,11 @@
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+# A minimal, flake8-equivalent rule set (pycodestyle errors/warnings +
+# pyflakes) for CI — catches real issues (unused imports/variables,
+# undefined names, obvious style problems) without demanding a full
+# modernization pass (e.g. PEP 585/604 typing syntax) as a side effect
+# of turning on CI.
+select = ["E", "F", "W"]

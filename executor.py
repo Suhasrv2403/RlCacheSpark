@@ -14,12 +14,14 @@ MDP formulation (see README for the full write-up):
     concatenated with global cache signals (see `_get_cache_state_vector`).
   - Action: index of the cached partition to evict, or a "no eviction"
     action when the index is out of range of the current cache size.
-  - Reward: NOT computed here for the primary logged transitions (this
-    module only records state transitions); `_simulate_multi_query_reward`
-    computes a hit-ratio-based multi-step reward used when generating RL
-    training data (`run_query_and_record_rl_data`) — note this is
-    hit-ratio-based, not the "cost-aware" recomputation-cost reward the
-    README describes for the DDQN pipeline (see review summary).
+  - Reward: two reward functions exist. `_simulate_multi_query_reward`
+    is hit-ratio-based and is what `run_query_and_record_rl_data`
+    currently logs into the replay buffer for offline training.
+    `compute_cost_aware_reward` is the "cost-aware" recomputation-cost
+    penalty the README describes for the DDQN pipeline — implemented
+    and unit-tested, but not yet wired into
+    `run_query_and_record_rl_data` (see that method's docstring and the
+    review summary for the integration follow-up).
 
 Inputs: a pandas DataFrame (via `create_partitions`), and optionally a
     trained DQN checkpoint path for the "RL" policy (default
@@ -222,7 +224,7 @@ class Executor:
             if evicted_id is None:
                 break
 
-        if self.eviction_policy == "RL" and self.flag == True:
+        if self.eviction_policy == "RL" and self.flag:
 
             self.flag = False
 
@@ -442,6 +444,31 @@ class Executor:
             print(str(part))
         print(f"Total Cache Used: {self.total_cache_used / 1024**2:.2f} MB | "
               f"Hit Ratio: {self.get_cache_hit_ratio():.2f}")
+
+    @staticmethod
+    def compute_cost_aware_reward(partition: Partition) -> float:
+        """Cost-aware eviction penalty: how expensive it is to lose `partition`.
+
+        This is the reward signal the README's MDP formulation describes
+        ("penalties tied to recomputation cost of evicted or missed
+        work, not ±1 hit/miss") — distinct from `_simulate_multi_query_reward`
+        below, which is hit-ratio-based and is what
+        `run_query_and_record_rl_data` currently logs into the replay
+        buffer. Wiring this into that data-generation path (so training
+        data actually reflects cost-aware rewards end to end) is a
+        follow-up; this method exists and is tested independently so
+        that work has a correct building block to start from.
+
+        Args:
+            partition: The partition being evicted or missed.
+
+        Returns:
+            A strictly negative penalty equal to
+            `-partition.recomputation_cost_ms` — larger/heavier
+            partitions (higher recomputation cost) produce a more
+            negative (worse) reward.
+        """
+        return -partition.recomputation_cost_ms
 
     def _simulate_multi_query_reward(
         self,
@@ -691,7 +718,12 @@ class Executor:
         is_temporal = 0.0
         is_categorical = 0.0
         for condition in query_filters.values():
-            values = condition if isinstance(condition, list) else [condition[1]] if isinstance(condition, tuple) and len(condition) == 2 else []
+            if isinstance(condition, list):
+                values = condition
+            elif isinstance(condition, tuple) and len(condition) == 2:
+                values = [condition[1]]
+            else:
+                values = []
             for v in values:
                 if isinstance(v, (pd.Timestamp, datetime)):
                     is_temporal = 1.0

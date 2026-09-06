@@ -54,7 +54,7 @@ from typing import Tuple, Optional
 # restructure lands (dqn_model.py -> src/dqn_model.py, this script ->
 # scripts/train_stable_dqn.py), this path needs updating to point at src/.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from dqn_model import DQN, STATE_DIM, NUM_ACTIONS, load_config  # noqa: E402
+from dqn_model import DQN, load_config  # noqa: E402
 
 _FULL_CONFIG = load_config()
 _CONFIG = _FULL_CONFIG.get("train_stable_dqn", {})

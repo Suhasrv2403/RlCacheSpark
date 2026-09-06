@@ -34,7 +34,6 @@ from typing import Any, Optional
 
 import pandas as pd
 import numpy as np
-import torch
 from executor import Executor  # import your executor class with RL integrated
 
 
