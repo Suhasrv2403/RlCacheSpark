@@ -1,3 +1,5 @@
+[![CI](https://github.com/Suhasrv2403/RlCacheSpark/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/Suhasrv2403/RlCacheSpark/actions/workflows/ci.yml)
+
 # The Cost of a Miss: RL-Driven Cache Eviction
 
 **Suhas Ramesh Vittal** · Department of Computer Science · Golisano College of Computing and Information Sciences · Rochester Institute of Technology
